@@ -3,6 +3,6 @@
     android:id="@+id/keyboard_root"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:background="#DDDDDD"
+    android:background="@color/pixel_bg"
     android:orientation="vertical"
     android:padding="4dp" />
