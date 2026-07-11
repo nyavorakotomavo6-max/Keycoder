@@ -1,11 +1,13 @@
 package com.nyavo.keyboard
 
-import android.graphics.Color
+import android.graphics.Typeface
 import android.inputmethodservice.InputMethodService
+import android.view.Gravity
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.widget.Button
 import android.widget.LinearLayout
+import androidx.core.content.ContextCompat
 
 class NyavoInputMethodService : InputMethodService() {
 
@@ -25,6 +27,10 @@ class NyavoInputMethodService : InputMethodService() {
         render()
         return root
     }
+
+    // ---------------------------------------------------------------
+    // Rendu
+    // ---------------------------------------------------------------
 
     private fun render() {
         val root = rootContainer ?: return
@@ -77,6 +83,10 @@ class NyavoInputMethodService : InputMethodService() {
         return container
     }
 
+    // ---------------------------------------------------------------
+    // Rangées — mode lettres
+    // ---------------------------------------------------------------
+
     private fun buildLetterRow(letters: List<String>): View {
         val row = horizontalRow()
         for (letter in letters) {
@@ -84,6 +94,7 @@ class NyavoInputMethodService : InputMethodService() {
                 makeKeyButton(
                     label = letter.uppercase(),
                     weight = 1f,
+                    isSpecial = false,
                     onLongClick = { handleLongPressSymbol(letter) }
                 ) { handleLetterTap(letter) }
             )
@@ -94,7 +105,7 @@ class NyavoInputMethodService : InputMethodService() {
     private fun buildThirdLetterRow(letters: List<String>): View {
         val row = horizontalRow()
 
-        val shift = makeKeyButton("⇧", 1.5f) { handleShiftTap() }
+        val shift = makeKeyButton("⇧", 1.5f, isSpecial = true) { handleShiftTap() }
         shiftButton = shift
         row.addView(shift)
 
@@ -103,37 +114,46 @@ class NyavoInputMethodService : InputMethodService() {
                 makeKeyButton(
                     label = letter.uppercase(),
                     weight = 1f,
+                    isSpecial = false,
                     onLongClick = { handleLongPressSymbol(letter) }
                 ) { handleLetterTap(letter) }
             )
         }
 
-        row.addView(makeKeyButton("⌫", 1.5f) { handleBackspace() })
+        row.addView(makeKeyButton("⌫", 1.5f, isSpecial = true) { handleBackspace() })
         return row
     }
 
     private fun buildPunctuationRow(): View {
         val row = horizontalRow()
         for (symbol in KeyboardLayoutData.QUICK_PUNCTUATION) {
-            row.addView(makeKeyButton(symbol, 1f) { handleSymbolTap(symbol) })
+            row.addView(makeKeyButton(symbol, 1f, isSpecial = false) { handleSymbolTap(symbol) })
         }
         return row
     }
 
     private fun buildBottomRow(): View {
         val row = horizontalRow()
-        row.addView(makeKeyButton("😊", 1.5f) { switchToEmojiMode() })
-        row.addView(makeKeyButton(layoutAbbreviation(state.layoutType), 1.5f) { cycleLayout() })
-        row.addView(makeKeyButton("espace", 4f) { handleSpace() })
-        row.addView(makeKeyButton("↵", 2f) { handleEnter() })
+        row.addView(makeKeyButton("😊", 1.5f, isSpecial = true) { switchToEmojiMode() })
+        row.addView(
+            makeKeyButton(layoutAbbreviation(state.layoutType), 1.5f, isSpecial = true) { cycleLayout() }
+        )
+        row.addView(makeKeyButton("espace", 4f, isSpecial = true) { handleSpace() })
+        row.addView(makeKeyButton("↵", 2f, isSpecial = true) { handleEnter() })
         return row
     }
+
+    // ---------------------------------------------------------------
+    // Rangées — mode emoji
+    // ---------------------------------------------------------------
 
     private fun buildEmojiCategoryTabs(): View {
         val row = horizontalRow()
         EmojiData.CATEGORIES.forEachIndexed { index, category ->
             val label = category.label.take(4)
-            row.addView(makeKeyButton(label, 1f, heightDp = 40) { selectEmojiCategory(index) })
+            row.addView(
+                makeKeyButton(label, 1f, heightDp = 40, isSpecial = true) { selectEmojiCategory(index) }
+            )
         }
         return row
     }
@@ -153,7 +173,9 @@ class NyavoInputMethodService : InputMethodService() {
         for (emojiRow in emojiRows) {
             val row = horizontalRow()
             for (emoji in emojiRow) {
-                row.addView(makeKeyButton(emoji, 1f, heightDp = 48) { handleEmojiTap(emoji) })
+                row.addView(
+                    makeKeyButton(emoji, 1f, heightDp = 48, isSpecial = false) { handleEmojiTap(emoji) }
+                )
             }
             val missing = 4 - emojiRow.size
             for (i in 0 until missing) {
@@ -167,11 +189,15 @@ class NyavoInputMethodService : InputMethodService() {
 
     private fun buildEmojiBottomRow(): View {
         val row = horizontalRow()
-        row.addView(makeKeyButton("ABC", 1.5f) { switchToLettersMode() })
-        row.addView(makeKeyButton("⌫", 1.5f) { handleBackspace() })
-        row.addView(makeKeyButton("espace", 4f) { handleSpace() })
+        row.addView(makeKeyButton("ABC", 1.5f, isSpecial = true) { switchToLettersMode() })
+        row.addView(makeKeyButton("⌫", 1.5f, isSpecial = true) { handleBackspace() })
+        row.addView(makeKeyButton("espace", 4f, isSpecial = true) { handleSpace() })
         return row
     }
+
+    // ---------------------------------------------------------------
+    // Handlers
+    // ---------------------------------------------------------------
 
     private fun handleLetterTap(letter: String) {
         val output = if (state.isUppercase()) letter.uppercase() else letter
@@ -246,20 +272,24 @@ class NyavoInputMethodService : InputMethodService() {
         }
     }
 
+    // ---------------------------------------------------------------
+    // Style
+    // ---------------------------------------------------------------
+
     private fun updateShiftButtonStyle() {
         val button = shiftButton ?: return
         when (state.shiftState) {
             ShiftState.OFF -> {
                 button.text = "⇧"
-                button.setBackgroundColor(Color.parseColor("#BBBBBB"))
+                button.setBackgroundResource(R.drawable.key_bg_special)
             }
             ShiftState.SHIFT -> {
                 button.text = "⇧"
-                button.setBackgroundColor(Color.parseColor("#888888"))
+                button.setBackgroundResource(R.drawable.key_bg_shift)
             }
             ShiftState.CAPS_LOCK -> {
                 button.text = "⇪"
-                button.setBackgroundColor(Color.parseColor("#4CAF50"))
+                button.setBackgroundResource(R.drawable.key_bg_capslock)
             }
         }
     }
@@ -269,6 +299,10 @@ class NyavoInputMethodService : InputMethodService() {
         KeyboardLayoutType.QWERTY -> "QWE"
         KeyboardLayoutType.QWERTZ -> "QWZ"
     }
+
+    // ---------------------------------------------------------------
+    // Helpers de construction de vues
+    // ---------------------------------------------------------------
 
     private fun horizontalRow(): LinearLayout {
         return LinearLayout(this).apply {
@@ -284,12 +318,28 @@ class NyavoInputMethodService : InputMethodService() {
         label: String,
         weight: Float,
         heightDp: Int = 48,
+        isSpecial: Boolean = false,
         onLongClick: (() -> Unit)? = null,
         onClick: () -> Unit
     ): Button {
         val button = Button(this)
         button.text = label
         button.isAllCaps = false
+        button.gravity = Gravity.CENTER
+        button.setPadding(0, 0, 0, 0)
+        button.minWidth = 0
+        button.minHeight = 0
+        button.minimumWidth = 0
+        button.minimumHeight = 0
+        button.includeFontPadding = false
+        button.stateListAnimator = null
+        button.elevation = 0f
+        button.typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+        button.setTextColor(ContextCompat.getColor(this, R.color.pixel_key_text))
+        button.setBackgroundResource(
+            if (isSpecial) R.drawable.key_bg_special else R.drawable.key_bg_normal
+        )
+
         val params = LinearLayout.LayoutParams(0, dp(heightDp), weight)
         params.setMargins(dp(2), dp(2), dp(2), dp(2))
         button.layoutParams = params
