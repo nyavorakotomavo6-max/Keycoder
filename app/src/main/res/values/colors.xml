@@ -2,4 +2,13 @@
 <resources>
     <color name="ic_launcher_background">#1B1B1B</color>
     <color name="ic_launcher_foreground">#FFFFFF</color>
+
+    <color name="pixel_bg">#2B2B36</color>
+    <color name="pixel_key_border">#22315F</color>
+    <color name="pixel_key_fill">#5B7FDE</color>
+    <color name="pixel_key_text">#FFFFFF</color>
+    <color name="pixel_special_border">#1A1A1A</color>
+    <color name="pixel_special_fill">#4A4A52</color>
+    <color name="pixel_shift_fill">#8FA6F2</color>
+    <color name="pixel_capslock_fill">#4CAF50</color>
 </resources>
