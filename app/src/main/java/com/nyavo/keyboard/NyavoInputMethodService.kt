@@ -6,12 +6,18 @@ import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.widget.Button
 import android.widget.LinearLayout
+import android.widget.Toast
 
 class NyavoInputMethodService : InputMethodService() {
 
     private lateinit var state: KeyboardState
     private var rootContainer: LinearLayout? = null
+
     private var shiftButton: Button? = null
+    private var ctrlButton: Button? = null
+    private var altButton: Button? = null
+    private var shiftMetaButton: Button? = null
+
     private var currentEmojiCategoryIndex = 0
 
     override fun onCreate() {
@@ -34,25 +40,31 @@ class NyavoInputMethodService : InputMethodService() {
         val root = rootContainer ?: return
         root.removeAllViews()
 
+        shiftButton = null
+        ctrlButton = null
+        altButton = null
+        shiftMetaButton = null
+
         val content = when (state.mode) {
             KeyboardMode.LETTERS -> buildLettersView()
             KeyboardMode.EMOJI -> buildEmojiView()
+            KeyboardMode.CODE -> buildCodeView()
         }
         root.addView(content)
 
-        if (state.mode == KeyboardMode.LETTERS) {
-            updateShiftButtonStyle()
+        when (state.mode) {
+            KeyboardMode.LETTERS -> updateShiftButtonStyle()
+            KeyboardMode.CODE -> updateModifierButtonStyles()
+            KeyboardMode.EMOJI -> { /* rien à mettre à jour */ }
         }
     }
 
+    // ---------------------------------------------------------------
+    // Mode Lettres
+    // ---------------------------------------------------------------
+
     private fun buildLettersView(): View {
-        val container = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-        }
+        val container = verticalContainer()
 
         val rows = KeyboardLayoutData.rowsFor(state.layoutType)
 
@@ -60,30 +72,10 @@ class NyavoInputMethodService : InputMethodService() {
         container.addView(buildLetterRow(rows[1]))
         container.addView(buildThirdLetterRow(rows[2]))
         container.addView(buildPunctuationRow())
-        container.addView(buildBottomRow())
+        container.addView(buildLettersBottomRow())
 
         return container
     }
-
-    private fun buildEmojiView(): View {
-        val container = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-        }
-
-        container.addView(buildEmojiCategoryTabs())
-        container.addView(buildEmojiGrid())
-        container.addView(buildEmojiBottomRow())
-
-        return container
-    }
-
-    // ---------------------------------------------------------------
-    // Rangées — mode lettres
-    // ---------------------------------------------------------------
 
     private fun buildLetterRow(letters: List<String>): View {
         val row = horizontalRow()
@@ -116,18 +108,33 @@ class NyavoInputMethodService : InputMethodService() {
         return row
     }
 
-    private fun buildBottomRow(): View {
+    private fun buildLettersBottomRow(): View {
         val row = horizontalRow()
-        row.addView(makeKeyButton("😊", 1.5f) { switchToEmojiMode() })
-        row.addView(makeKeyButton(layoutAbbreviation(state.layoutType), 1.5f) { cycleLayout() })
-        row.addView(makeKeyButton("espace", 4f) { handleSpace() })
+        row.addView(makeKeyButton("😊", 1.2f) { switchToEmojiMode() })
+        row.addView(makeKeyButton(layoutAbbreviation(state.layoutType), 1.2f) { cycleLayout() })
+        row.addView(
+            makeKeyButton(
+                "Code",
+                1.2f,
+                onLongClick = { lockModeAndNotify() }
+            ) { toggleNormalCodeMode() }
+        )
+        row.addView(makeKeyButton("espace", 3.4f) { handleSpace() })
         row.addView(makeKeyButton("↵", 2f) { handleEnter() })
         return row
     }
 
     // ---------------------------------------------------------------
-    // Rangées — mode emoji
+    // Mode Emoji
     // ---------------------------------------------------------------
+
+    private fun buildEmojiView(): View {
+        val container = verticalContainer()
+        container.addView(buildEmojiCategoryTabs())
+        container.addView(buildEmojiGrid())
+        container.addView(buildEmojiBottomRow())
+        return container
+    }
 
     private fun buildEmojiCategoryTabs(): View {
         val row = horizontalRow()
@@ -139,13 +146,7 @@ class NyavoInputMethodService : InputMethodService() {
     }
 
     private fun buildEmojiGrid(): View {
-        val container = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-        }
+        val container = verticalContainer()
 
         val category = EmojiData.CATEGORIES[currentEmojiCategoryIndex]
         val emojiRows = category.emojis.chunked(4)
@@ -174,12 +175,95 @@ class NyavoInputMethodService : InputMethodService() {
     }
 
     // ---------------------------------------------------------------
-    // Handlers
+    // Mode Code
+    // ---------------------------------------------------------------
+
+    private fun buildCodeView(): View {
+        val container = verticalContainer()
+
+        container.addView(buildCodeModifierRow())
+        container.addView(buildCodeArrowRow())
+        for (symbolRow in CodeLayoutData.SYMBOL_ROWS) {
+            container.addView(buildCodeSymbolRow(symbolRow))
+        }
+        container.addView(buildCodeBottomRow())
+
+        return container
+    }
+
+    private fun buildCodeModifierRow(): View {
+        val row = horizontalRow()
+
+        for (label in CodeLayoutData.MODIFIER_ROW) {
+            val button = when (label) {
+                "Ctrl" -> makeKeyButton(label, 1f) { handleCtrlTap() }
+                "Alt" -> makeKeyButton(label, 1f) { handleAltTap() }
+                "Shift" -> makeKeyButton(label, 1f) { handleShiftMetaTap() }
+                else -> makeKeyButton(label, 1f) { performCodeAction(label) }
+            }
+            when (label) {
+                "Ctrl" -> ctrlButton = button
+                "Alt" -> altButton = button
+                "Shift" -> shiftMetaButton = button
+            }
+            row.addView(button)
+        }
+
+        return row
+    }
+
+    private fun buildCodeArrowRow(): View {
+        val row = horizontalRow()
+        for (arrow in CodeLayoutData.ARROW_ROW) {
+            row.addView(makeKeyButton(arrow, 1f) { performCodeAction(arrow) })
+        }
+        return row
+    }
+
+    private fun buildCodeSymbolRow(symbols: List<String>): View {
+        val row = horizontalRow()
+        for (symbol in symbols) {
+            row.addView(makeKeyButton(symbol, 1f) { performCodeAction(symbol) })
+        }
+        return row
+    }
+
+    private fun buildCodeBottomRow(): View {
+        val row = horizontalRow()
+        row.addView(
+            makeKeyButton(
+                "ABC",
+                1.5f,
+                onLongClick = { lockModeAndNotify() }
+            ) { toggleNormalCodeMode() }
+        )
+        row.addView(makeKeyButton("⌫", 1.5f) { handleBackspace() })
+        row.addView(makeKeyButton("espace", 3f) { handleSpace() })
+        row.addView(makeKeyButton("↵", 1.5f) { handleEnter() })
+        return row
+    }
+
+    // ---------------------------------------------------------------
+    // Handlers — texte simple
     // ---------------------------------------------------------------
 
     private fun handleLetterTap(letter: String) {
+        val ic = currentInputConnection ?: return
+
+        if (state.hasActiveModifiers()) {
+            val keyCode = KeyEventMapper.keyCodeForLetter(letter[0])
+            val meta = state.consumeModifiers()
+            if (keyCode != null) {
+                KeyEventMapper.dispatch(ic, keyCode, meta)
+            } else {
+                ic.commitText(letter, 1)
+            }
+            updateModifierButtonStyles()
+            return
+        }
+
         val output = if (state.isUppercase()) letter.uppercase() else letter
-        currentInputConnection?.commitText(output, 1)
+        ic.commitText(output, 1)
         state.consumeShiftAfterLetter()
         updateShiftButtonStyle()
     }
@@ -190,32 +274,6 @@ class NyavoInputMethodService : InputMethodService() {
 
     private fun handleEmojiTap(emoji: String) {
         currentInputConnection?.commitText(emoji, 1)
-    }
-
-    private fun handleShiftTap() {
-        state.onShiftTapped()
-        updateShiftButtonStyle()
-    }
-
-    private fun cycleLayout() {
-        state.cycleLayout()
-        render()
-    }
-
-    private fun switchToEmojiMode() {
-        state.mode = KeyboardMode.EMOJI
-        currentEmojiCategoryIndex = 0
-        render()
-    }
-
-    private fun switchToLettersMode() {
-        state.mode = KeyboardMode.LETTERS
-        render()
-    }
-
-    private fun selectEmojiCategory(index: Int) {
-        currentEmojiCategoryIndex = index
-        render()
     }
 
     private fun handleSpace() {
@@ -246,6 +304,98 @@ class NyavoInputMethodService : InputMethodService() {
     }
 
     // ---------------------------------------------------------------
+    // Handlers — Shift (majuscule, mode Lettres)
+    // ---------------------------------------------------------------
+
+    private fun handleShiftTap() {
+        state.onShiftTapped()
+        updateShiftButtonStyle()
+    }
+
+    // ---------------------------------------------------------------
+    // Handlers — Mode Code : modificateurs et touches spéciales
+    // ---------------------------------------------------------------
+
+    private fun handleCtrlTap() {
+        state.toggleCtrl()
+        updateModifierButtonStyles()
+    }
+
+    private fun handleAltTap() {
+        state.toggleAlt()
+        updateModifierButtonStyles()
+    }
+
+    private fun handleShiftMetaTap() {
+        state.toggleShiftMeta()
+        updateModifierButtonStyles()
+    }
+
+    /**
+     * Exécute une touche du Mode Code. Si un modificateur (Ctrl/Alt/Shift)
+     * est armé, ou si la touche est une touche spéciale (Tab, Esc, flèches),
+     * on envoie un vrai KeyEvent avec méta-état pour que les raccourcis
+     * fonctionnent dans des applications comme Termux ou Acode. Sinon on
+     * insère simplement le caractère comme texte normal.
+     */
+    private fun performCodeAction(label: String) {
+        val ic = currentInputConnection ?: return
+
+        val specialKeyCode = KeyEventMapper.keyCodeForSpecial(label)
+        val punctuationKeyCode = if (label.length == 1) {
+            KeyEventMapper.keyCodeForPunctuation(label[0])
+        } else null
+
+        val keyCode = specialKeyCode ?: punctuationKeyCode
+
+        if (keyCode != null) {
+            val meta = state.consumeModifiers()
+            KeyEventMapper.dispatch(ic, keyCode, meta)
+        } else {
+            state.consumeModifiers()
+            ic.commitText(label, 1)
+        }
+
+        updateModifierButtonStyles()
+    }
+
+    // ---------------------------------------------------------------
+    // Handlers — navigation entre modes
+    // ---------------------------------------------------------------
+
+    private fun switchToEmojiMode() {
+        state.mode = KeyboardMode.EMOJI
+        currentEmojiCategoryIndex = 0
+        render()
+    }
+
+    private fun switchToLettersMode() {
+        state.mode = KeyboardMode.LETTERS
+        render()
+    }
+
+    private fun toggleNormalCodeMode() {
+        state.toggleNormalCode()
+        render()
+    }
+
+    private fun lockModeAndNotify() {
+        state.lockCurrentModeAsDefault()
+        val label = if (state.mode == KeyboardMode.CODE) "Mode Code" else "Mode Normal"
+        Toast.makeText(this, "$label verrouillé comme mode par défaut", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun cycleLayout() {
+        state.cycleLayout()
+        render()
+    }
+
+    private fun selectEmojiCategory(index: Int) {
+        currentEmojiCategoryIndex = index
+        render()
+    }
+
+    // ---------------------------------------------------------------
     // Style
     // ---------------------------------------------------------------
 
@@ -267,6 +417,18 @@ class NyavoInputMethodService : InputMethodService() {
         }
     }
 
+    private fun updateModifierButtonStyles() {
+        ctrlButton?.setBackgroundColor(
+            Color.parseColor(if (state.ctrlArmed) "#4CAF50" else "#BBBBBB")
+        )
+        altButton?.setBackgroundColor(
+            Color.parseColor(if (state.altArmed) "#4CAF50" else "#BBBBBB")
+        )
+        shiftMetaButton?.setBackgroundColor(
+            Color.parseColor(if (state.shiftMetaArmed) "#4CAF50" else "#BBBBBB")
+        )
+    }
+
     private fun layoutAbbreviation(type: KeyboardLayoutType): String = when (type) {
         KeyboardLayoutType.AZERTY -> "AZE"
         KeyboardLayoutType.QWERTY -> "QWE"
@@ -276,6 +438,16 @@ class NyavoInputMethodService : InputMethodService() {
     // ---------------------------------------------------------------
     // Helpers de construction de vues
     // ---------------------------------------------------------------
+
+    private fun verticalContainer(): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+    }
 
     private fun horizontalRow(): LinearLayout {
         return LinearLayout(this).apply {
@@ -291,6 +463,7 @@ class NyavoInputMethodService : InputMethodService() {
         label: String,
         weight: Float,
         heightDp: Int = 48,
+        onLongClick: (() -> Unit)? = null,
         onClick: () -> Unit
     ): Button {
         val button = Button(this)
@@ -300,6 +473,12 @@ class NyavoInputMethodService : InputMethodService() {
         params.setMargins(dp(2), dp(2), dp(2), dp(2))
         button.layoutParams = params
         button.setOnClickListener { onClick() }
+        if (onLongClick != null) {
+            button.setOnLongClickListener {
+                onLongClick()
+                true
+            }
+        }
         return button
     }
 
