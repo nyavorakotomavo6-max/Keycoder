@@ -26,10 +26,6 @@ class NyavoInputMethodService : InputMethodService() {
         return root
     }
 
-    // ---------------------------------------------------------------
-    // Rendu
-    // ---------------------------------------------------------------
-
     private fun render() {
         val root = rootContainer ?: return
         root.removeAllViews()
@@ -80,10 +76,6 @@ class NyavoInputMethodService : InputMethodService() {
 
         return container
     }
-
-    // ---------------------------------------------------------------
-    // Rangées — mode lettres
-    // ---------------------------------------------------------------
 
     private fun buildLetterRow(letters: List<String>): View {
         val row = horizontalRow()
@@ -137,10 +129,6 @@ class NyavoInputMethodService : InputMethodService() {
         return row
     }
 
-    // ---------------------------------------------------------------
-    // Rangées — mode emoji
-    // ---------------------------------------------------------------
-
     private fun buildEmojiCategoryTabs(): View {
         val row = horizontalRow()
         EmojiData.CATEGORIES.forEachIndexed { index, category ->
@@ -184,10 +172,6 @@ class NyavoInputMethodService : InputMethodService() {
         row.addView(makeKeyButton("espace", 4f) { handleSpace() })
         return row
     }
-
-    // ---------------------------------------------------------------
-    // Handlers
-    // ---------------------------------------------------------------
 
     private fun handleLetterTap(letter: String) {
         val output = if (state.isUppercase()) letter.uppercase() else letter
@@ -262,10 +246,6 @@ class NyavoInputMethodService : InputMethodService() {
         }
     }
 
-    // ---------------------------------------------------------------
-    // Style
-    // ---------------------------------------------------------------
-
     private fun updateShiftButtonStyle() {
         val button = shiftButton ?: return
         when (state.shiftState) {
@@ -289,10 +269,6 @@ class NyavoInputMethodService : InputMethodService() {
         KeyboardLayoutType.QWERTY -> "QWE"
         KeyboardLayoutType.QWERTZ -> "QWZ"
     }
-
-    // ---------------------------------------------------------------
-    // Helpers de construction de vues
-    // ---------------------------------------------------------------
 
     private fun horizontalRow(): LinearLayout {
         return LinearLayout(this).apply {
