@@ -295,7 +295,7 @@ class NyavoInputMethodService : InputMethodService() {
     ): Button {
         val button = Button(this)
         button.text = label
-        button.textAllCaps = false
+        button.isAllCaps = false
         val params = LinearLayout.LayoutParams(0, dp(heightDp), weight)
         params.setMargins(dp(2), dp(2), dp(2), dp(2))
         button.layoutParams = params
