@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Nyavo Keyboard</string>
+    <string name="ime_name">Nyavo Keyboard</string>
+    <string name="settings_explanation">Nyavo Keyboard doit être activé puis sélectionné manuellement dans les paramètres système Android.</string>
+    <string name="btn_open_ime_settings">Ouvrir les paramètres clavier</string>
+</resources>
