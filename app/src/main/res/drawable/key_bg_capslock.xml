@@ -2,18 +2,25 @@
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item>
         <shape android:shape="rectangle">
-            <solid android:color="@color/pixel_special_border" />
-            <corners android:radius="0dp" />
+            <solid android:color="@color/capslock_border" />
         </shape>
     </item>
     <item
-        android:left="3dp"
-        android:top="3dp"
-        android:right="3dp"
-        android:bottom="3dp">
+        android:left="2dp"
+        android:top="2dp"
+        android:right="2dp"
+        android:bottom="2dp">
         <shape android:shape="rectangle">
-            <solid android:color="@color/pixel_capslock_fill" />
-            <corners android:radius="0dp" />
+            <solid android:color="@color/capslock_shadow_tone" />
+        </shape>
+    </item>
+    <item
+        android:left="2dp"
+        android:top="2dp"
+        android:right="4dp"
+        android:bottom="4dp">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/capslock_fill" />
         </shape>
     </item>
 </layer-list>
