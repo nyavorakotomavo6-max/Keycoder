@@ -5,6 +5,7 @@ import android.animation.ValueAnimator
 import android.graphics.Typeface
 import android.inputmethodservice.InputMethodService
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.animation.AccelerateDecelerateInterpolator
 import android.view.inputmethod.EditorInfo
@@ -94,9 +95,12 @@ class NyavoInputMethodService : InputMethodService() {
 
         val rows = KeyboardLayoutData.rowsFor(state.layoutType)
 
-        container.addView(buildLetterRow(rows[0]))
-        container.addView(buildLetterRow(rows[1]))
-        container.addView(buildThirdLetterRow(rows[2]))
+        // Décalage progressif haut -> bas pour imiter la position naturelle
+        // des doigts sur un clavier physique (rangée du haut alignée,
+        // rangée du milieu légèrement décalée, rangée du bas encore plus).
+        container.addView(buildLetterRow(rows[0], startPaddingDp = 0))
+        container.addView(buildLetterRow(rows[1], startPaddingDp = 10))
+        container.addView(buildThirdLetterRow(rows[2], startPaddingDp = 4))
         container.addView(buildPunctuationRow())
         container.addView(buildBottomRow())
 
@@ -123,8 +127,8 @@ class NyavoInputMethodService : InputMethodService() {
     // Rangées — mode lettres
     // ---------------------------------------------------------------
 
-    private fun buildLetterRow(letters: List<String>): View {
-        val row = horizontalRow()
+    private fun buildLetterRow(letters: List<String>, startPaddingDp: Int = 0): View {
+        val row = horizontalRow(startPaddingDp)
         for (letter in letters) {
             row.addView(
                 makeKeyButton(
@@ -138,10 +142,13 @@ class NyavoInputMethodService : InputMethodService() {
         return row
     }
 
-    private fun buildThirdLetterRow(letters: List<String>): View {
-        val row = horizontalRow()
+    private fun buildThirdLetterRow(letters: List<String>, startPaddingDp: Int = 0): View {
+        val row = horizontalRow(startPaddingDp)
 
-        val shift = makeKeyButton("⇧", 1.5f, isSpecial = true) { handleShiftTap() }
+        // Shift agrandi (1.5 -> 1.8) : touche à fort impact ergonomique,
+        // utilisée à chaque début de phrase / nom propre, doit rester
+        // facile à atteindre sans viser précisément.
+        val shift = makeKeyButton("⇧", 1.8f, isSpecial = true) { handleShiftTap() }
         shiftButton = shift
         row.addView(shift)
 
@@ -156,7 +163,10 @@ class NyavoInputMethodService : InputMethodService() {
             )
         }
 
-        row.addView(makeKeyButton("⌫", 1.5f, isSpecial = true) { handleBackspace() })
+        // Backspace agrandi (1.5 -> 1.8) : touche de correction d'erreur,
+        // la plus utilisée après les lettres elles-mêmes, doit être
+        // facile à atteindre pour éviter les frappes ratées.
+        row.addView(makeKeyButton("⌫", 1.8f, isSpecial = true) { handleBackspace() })
         return row
     }
 
@@ -170,12 +180,18 @@ class NyavoInputMethodService : InputMethodService() {
 
     private fun buildBottomRow(): View {
         val row = horizontalRow()
-        row.addView(makeKeyButton("😊", 1.5f, isSpecial = true) { switchToEmojiMode() })
+        row.addView(makeKeyButton("😊", 1.3f, isSpecial = true) { switchToEmojiMode() })
+        // Sélecteur de langue/layout agrandi (1.5 -> 1.7) : demandé
+        // explicitement comme touche importante à atteindre facilement.
         row.addView(
-            makeKeyButton(layoutAbbreviation(state.layoutType), 1.5f, isSpecial = true) { cycleLayout() }
+            makeKeyButton(layoutAbbreviation(state.layoutType), 1.7f, isSpecial = true) { cycleLayout() }
         )
-        row.addView(makeKeyButton("espace", 4f, isSpecial = true) { handleSpace() })
-        row.addView(makeKeyButton("↵", 2f, isSpecial = true) { handleEnter() })
+        // Espace agrandi (4 -> 4.2) : la touche la plus utilisée de tout
+        // le clavier, occupe la zone de confort centrale des deux pouces.
+        row.addView(makeKeyButton("espace", 4.2f, isSpecial = true) { handleSpace() })
+        // Entrée agrandie (2 -> 2.3) : touche de validation fréquente,
+        // doit rester accessible même en frappe rapide.
+        row.addView(makeKeyButton("↵", 2.3f, isSpecial = true) { handleEnter() })
         return row
     }
 
@@ -225,9 +241,9 @@ class NyavoInputMethodService : InputMethodService() {
 
     private fun buildEmojiBottomRow(): View {
         val row = horizontalRow()
-        row.addView(makeKeyButton("ABC", 1.5f, isSpecial = true) { switchToLettersMode() })
-        row.addView(makeKeyButton("⌫", 1.5f, isSpecial = true) { handleBackspace() })
-        row.addView(makeKeyButton("espace", 4f, isSpecial = true) { handleSpace() })
+        row.addView(makeKeyButton("ABC", 1.7f, isSpecial = true) { switchToLettersMode() })
+        row.addView(makeKeyButton("⌫", 1.8f, isSpecial = true) { handleBackspace() })
+        row.addView(makeKeyButton("espace", 4.2f, isSpecial = true) { handleSpace() })
         return row
     }
 
@@ -340,13 +356,16 @@ class NyavoInputMethodService : InputMethodService() {
     // Helpers de construction de vues
     // ---------------------------------------------------------------
 
-    private fun horizontalRow(): LinearLayout {
+    private fun horizontalRow(startPaddingDp: Int = 0): LinearLayout {
         return LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             )
+            if (startPaddingDp > 0) {
+                setPadding(dp(startPaddingDp), 0, 0, 0)
+            }
         }
     }
 
@@ -386,7 +405,37 @@ class NyavoInputMethodService : InputMethodService() {
                 true
             }
         }
+        attachPressAnimation(button)
         return button
+    }
+
+    /**
+     * Micro-animation d'appui : légère réduction d'échelle au contact du
+     * doigt, retour fluide au relâchement. Utilise uniquement des
+     * transformations GPU (scaleX/scaleY), donc aucun recalcul de layout
+     * n'est déclenché — coût de performance négligeable même sur du
+     * matériel modeste.
+     */
+    private fun attachPressAnimation(button: Button) {
+        button.setOnTouchListener { view, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    view.animate()
+                        .scaleX(0.93f)
+                        .scaleY(0.93f)
+                        .setDuration(80L)
+                        .start()
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    view.animate()
+                        .scaleX(1f)
+                        .scaleY(1f)
+                        .setDuration(100L)
+                        .start()
+                }
+            }
+            false
+        }
     }
 
     private fun makeSpacer(weight: Float): View {
