@@ -17,6 +17,7 @@ import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.PopupWindow
+import android.widget.TextView
 import androidx.core.content.ContextCompat
 import kotlin.math.abs
 
@@ -24,6 +25,7 @@ class NyavoInputMethodService : InputMethodService() {
 
     private lateinit var state: KeyboardState
     private var rootContainer: LinearLayout? = null
+    private var glowOverlay: View? = null
     private var shiftButton: Button? = null
     private var currentEmojiCategoryIndex = 0
 
@@ -35,6 +37,11 @@ class NyavoInputMethodService : InputMethodService() {
     private val normalTextSizeSp = 18f
     private val bigTextSizeSp = 26f
 
+    // Police mise en cache une seule fois : évite de recréer un Typeface
+    // à chaque construction de touche, ce qui allège la charge lors du
+    // rendu et contribue à une frappe perçue comme plus fluide.
+    private val sharedTypeface by lazy { Typeface.create(Typeface.MONOSPACE, Typeface.BOLD) }
+
     // --- Popup symbole/chiffre à appui long ---
     private data class PopupZone(val view: Button, val value: String)
 
@@ -44,10 +51,13 @@ class NyavoInputMethodService : InputMethodService() {
     private var currentZoneWidthPx = 1
     private var currentPopupStartX = 0
     private var currentHighlightIndex = 0
-
     private val longPressDelayMs = 320L
 
-    // --- Déplacement du curseur via glissé sur la barre d'espace ---
+    // --- Bulle d'aperçu de touche (réutilisée, jamais recréée à chaque frappe) ---
+    private var previewPopup: PopupWindow? = null
+    private var previewText: TextView? = null
+
+    // --- Curseur via glissé sur la barre d'espace ---
     private val cursorStepThresholdPx get() = dp(24)
 
     override fun onCreate() {
@@ -58,9 +68,11 @@ class NyavoInputMethodService : InputMethodService() {
     override fun onCreateInputView(): View {
         val root = layoutInflater.inflate(R.layout.keyboard_view, null) as FrameLayout
         val card = root.findViewById<LinearLayout>(R.id.keyboard_card)
+        glowOverlay = root.findViewById(R.id.keyboard_glow_overlay)
         rootContainer = card
         render()
         addFloatingAnimation(card)
+        setupPreviewPopup()
         return root
     }
 
@@ -73,12 +85,14 @@ class NyavoInputMethodService : InputMethodService() {
         super.onFinishInputView(finishingInput)
         floatAnimators.forEach { it.cancel() }
         dismissPopup()
+        dismissPreview()
     }
 
     override fun onDestroy() {
         super.onDestroy()
         floatAnimators.forEach { it.cancel() }
         dismissPopup()
+        dismissPreview()
     }
 
     // ---------------------------------------------------------------
@@ -93,6 +107,83 @@ class NyavoInputMethodService : InputMethodService() {
         }
         floatAnimators.add(anim)
         anim.start()
+    }
+
+    // ---------------------------------------------------------------
+    // Flash lumineux propagé sur tout le clavier
+    // ---------------------------------------------------------------
+
+    /**
+     * Effet "clavier qui s'illumine" : plutôt que de propager la lueur
+     * touche par touche (coûteux en recalculs de layout), on anime
+     * l'opacité d'un unique calque néon semi-transparent posé au-dessus
+     * de tout le clavier. Le résultat visuel donne l'impression d'un
+     * flash qui traverse l'ensemble de la carte, pour un coût de
+     * performance négligeable (une seule transformation d'alpha, GPU).
+     */
+    private fun triggerGlowFlash() {
+        val overlay = glowOverlay ?: return
+        overlay.animate().cancel()
+        overlay.alpha = 0f
+        overlay.animate()
+            .alpha(0.16f)
+            .setDuration(45L)
+            .withEndAction {
+                overlay.animate().alpha(0f).setDuration(90L).start()
+            }
+            .start()
+    }
+
+    // ---------------------------------------------------------------
+    // Bulle d'aperçu de touche (preview)
+    // ---------------------------------------------------------------
+
+    private fun setupPreviewPopup() {
+        val bubble = TextView(this).apply {
+            setTextColor(ContextCompat.getColor(this@NyavoInputMethodService, R.color.key_text))
+            textSize = 22f
+            typeface = sharedTypeface
+            gravity = Gravity.CENTER
+            setPadding(dp(10), dp(6), dp(10), dp(6))
+            background = ContextCompat.getDrawable(this@NyavoInputMethodService, R.drawable.key_bg_shift)
+        }
+        previewText = bubble
+        previewPopup = PopupWindow(
+            bubble,
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            false
+        ).apply {
+            isOutsideTouchable = false
+            isTouchable = false
+        }
+    }
+
+    private fun showPreview(anchor: View, label: String) {
+        val popup = previewPopup ?: return
+        val bubble = previewText ?: return
+        bubble.text = label
+
+        bubble.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
+        val bubbleWidth = bubble.measuredWidth
+        val bubbleHeight = bubble.measuredHeight
+
+        val location = IntArray(2)
+        anchor.getLocationOnScreen(location)
+        val x = location[0] + anchor.width / 2 - bubbleWidth / 2
+        val y = location[1] - bubbleHeight - dp(6)
+
+        if (!popup.isShowing) {
+            popup.width = bubbleWidth
+            popup.height = bubbleHeight
+            popup.showAtLocation(anchor, Gravity.NO_GRAVITY, x, y)
+        } else {
+            popup.update(x, y, bubbleWidth, bubbleHeight)
+        }
+    }
+
+    private fun dismissPreview() {
+        previewPopup?.let { if (it.isShowing) it.dismiss() }
     }
 
     // ---------------------------------------------------------------
@@ -227,11 +318,7 @@ class NyavoInputMethodService : InputMethodService() {
 
     // ---------------------------------------------------------------
     // Barre d'espace : tap = espace, appui long + glissé = déplacement
-    // du curseur (gauche/droite = caractère, haut/bas = ligne). Chaque
-    // tranche de ~24dp parcourue dans une direction déplace le curseur
-    // d'un cran ; un glissé rapide et long parcourt donc plusieurs
-    // tranches d'affilée, ce qui déplace le curseur de plusieurs
-    // lettres, exactement comme un geste répété.
+    // du curseur
     // ---------------------------------------------------------------
 
     private fun makeSpaceButton(weight: Float): Button {
@@ -247,14 +334,14 @@ class NyavoInputMethodService : InputMethodService() {
         button.includeFontPadding = false
         button.stateListAnimator = null
         button.elevation = 0f
-        button.typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+        button.typeface = sharedTypeface
         button.setTextColor(ContextCompat.getColor(this, R.color.key_text))
         button.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, normalTextSizeSp)
         button.setBackgroundResource(R.drawable.key_bg_special)
         button.isHapticFeedbackEnabled = true
 
         val params = LinearLayout.LayoutParams(0, dp(standardKeyHeightDp), weight)
-        params.setMargins(dp(3), dp(3), dp(3), dp(3))
+        params.setMargins(dp(2), dp(2), dp(2), dp(2))
         button.layoutParams = params
 
         attachSpaceGestureBehavior(button)
@@ -298,6 +385,7 @@ class NyavoInputMethodService : InputMethodService() {
                         button.setBackgroundResource(R.drawable.key_bg_special)
                     } else {
                         view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                        triggerGlowFlash()
                         handleSpace()
                     }
                     cursorModeActive = false
@@ -315,12 +403,6 @@ class NyavoInputMethodService : InputMethodService() {
         }
     }
 
-    /**
-     * Calcule si le doigt a parcouru une "tranche" complète depuis le
-     * dernier pas enregistré, dans la direction dominante (horizontale
-     * ou verticale). Si oui, déclenche un déplacement du curseur d'un
-     * cran et met à jour le point de référence pour la tranche suivante.
-     */
     private fun processCursorDrag(
         currentX: Float,
         currentY: Float,
@@ -355,16 +437,10 @@ class NyavoInputMethodService : InputMethodService() {
         val now = System.currentTimeMillis()
         ic.sendKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_DOWN, keyCode, 0))
         ic.sendKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_UP, keyCode, 0))
-        val button = lastCursorFeedbackTarget
-        button?.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
     }
 
-    // Petit point d'accroche pour le retour haptique à chaque pas ; volontairement
-    // simple pour ne pas complexifier la signature des fonctions ci-dessus.
-    private var lastCursorFeedbackTarget: View? = null
-
     // ---------------------------------------------------------------
-    // Touches lettres — gestion tactile complète (tap / appui long+glisse)
+    // Touches lettres — insertion instantanée au contact (ACTION_DOWN)
     // ---------------------------------------------------------------
 
     private fun makeLetterButton(letter: String, topRowIndex: Int?): Button {
@@ -380,24 +456,38 @@ class NyavoInputMethodService : InputMethodService() {
         button.includeFontPadding = false
         button.stateListAnimator = null
         button.elevation = 0f
-        button.typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+        button.typeface = sharedTypeface
         button.setTextColor(ContextCompat.getColor(this, R.color.key_text))
         button.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, normalTextSizeSp)
         button.setBackgroundResource(R.drawable.key_bg_normal)
         button.isHapticFeedbackEnabled = true
 
         val params = LinearLayout.LayoutParams(0, dp(standardKeyHeightDp), 1f)
-        params.setMargins(dp(3), dp(3), dp(3), dp(3))
+        params.setMargins(dp(1) + dp(1) / 2, dp(1) + dp(1) / 2, dp(1) + dp(1) / 2, dp(1) + dp(1) / 2)
         button.layoutParams = params
 
         attachLetterKeyBehavior(button, letter, topRowIndex)
         return button
     }
 
+    /**
+     * Stratégie "insertion instantanée" : la lettre est committée dès le
+     * contact du doigt (ACTION_DOWN), pas au relâchement. Si l'appui se
+     * prolonge assez longtemps pour déclencher le popup de symbole, la
+     * lettre déjà insérée est retirée avant d'afficher le popup — la
+     * bascule est trop rapide pour être perçue par l'utilisateur, mais
+     * cette approche garantit qu'une frappe rapide donne un résultat
+     * réellement instantané à l'écran.
+     */
     private fun attachLetterKeyBehavior(button: Button, letter: String, topRowIndex: Int?) {
         var longPressTriggered = false
+
         val longPressRunnable = Runnable {
             longPressTriggered = true
+            dismissPreview()
+            // Retire la lettre déjà insérée sur ACTION_DOWN avant de
+            // proposer le symbole associé.
+            currentInputConnection?.deleteSurroundingText(1, 0)
             button.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
             showSymbolPopup(button, letter, topRowIndex)
         }
@@ -406,7 +496,11 @@ class NyavoInputMethodService : InputMethodService() {
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
                     longPressTriggered = false
-                    view.animate().translationY(2f).setDuration(40L).start()
+                    view.animate().translationY(2f).setDuration(30L).start()
+                    view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                    triggerGlowFlash()
+                    showPreview(view, letter.uppercase())
+                    handleLetterTap(letter)
                     longPressHandler.postDelayed(longPressRunnable, longPressDelayMs)
                     true
                 }
@@ -418,19 +512,18 @@ class NyavoInputMethodService : InputMethodService() {
                 }
                 MotionEvent.ACTION_UP -> {
                     longPressHandler.removeCallbacks(longPressRunnable)
-                    view.animate().translationY(0f).setDuration(60L).start()
+                    view.animate().translationY(0f).setDuration(50L).start()
+                    dismissPreview()
                     if (longPressTriggered) {
                         commitHighlightedZone()
-                    } else {
-                        view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-                        handleLetterTap(letter)
                     }
                     longPressTriggered = false
                     true
                 }
                 MotionEvent.ACTION_CANCEL -> {
                     longPressHandler.removeCallbacks(longPressRunnable)
-                    view.animate().translationY(0f).setDuration(60L).start()
+                    view.animate().translationY(0f).setDuration(50L).start()
+                    dismissPreview()
                     if (longPressTriggered) {
                         dismissPopup()
                     }
@@ -475,7 +568,7 @@ class NyavoInputMethodService : InputMethodService() {
                 includeFontPadding = false
                 stateListAnimator = null
                 elevation = 0f
-                typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+                typeface = sharedTypeface
                 setTextColor(ContextCompat.getColor(this@NyavoInputMethodService, R.color.key_text))
                 setBackgroundResource(if (index == 0) R.drawable.key_bg_shift else R.drawable.key_bg_special)
                 layoutParams = LinearLayout.LayoutParams(dp(48), dp(48)).apply {
@@ -535,6 +628,7 @@ class NyavoInputMethodService : InputMethodService() {
         if (currentZones.isNotEmpty()) {
             val value = currentZones[currentHighlightIndex].value
             currentInputConnection?.commitText(value, 1)
+            triggerGlowFlash()
         }
         dismissPopup()
     }
@@ -558,6 +652,7 @@ class NyavoInputMethodService : InputMethodService() {
 
     private fun handleEmojiTap(emoji: String) {
         currentInputConnection?.commitText(emoji, 1)
+        triggerGlowFlash()
     }
 
     private fun handleShiftTap() {
@@ -598,6 +693,7 @@ class NyavoInputMethodService : InputMethodService() {
         } else {
             ic.deleteSurroundingText(1, 0)
         }
+        triggerGlowFlash()
     }
 
     private fun handleEnter() {
@@ -611,6 +707,7 @@ class NyavoInputMethodService : InputMethodService() {
         } else {
             ic.commitText("\n", 1)
         }
+        triggerGlowFlash()
     }
 
     // ---------------------------------------------------------------
@@ -685,7 +782,7 @@ class NyavoInputMethodService : InputMethodService() {
         button.includeFontPadding = false
         button.stateListAnimator = null
         button.elevation = 0f
-        button.typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+        button.typeface = sharedTypeface
         button.setTextColor(ContextCompat.getColor(this, R.color.key_text))
         button.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, textSizeSp)
         button.setBackgroundResource(
@@ -694,10 +791,11 @@ class NyavoInputMethodService : InputMethodService() {
         button.isHapticFeedbackEnabled = true
 
         val params = LinearLayout.LayoutParams(0, dp(heightDp), weight)
-        params.setMargins(dp(3), dp(3), dp(3), dp(3))
+        params.setMargins(dp(2), dp(2), dp(2), dp(2))
         button.layoutParams = params
         button.setOnClickListener {
             it.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+            triggerGlowFlash()
             onClick()
         }
         attachSinkAnimation(button)
@@ -708,10 +806,10 @@ class NyavoInputMethodService : InputMethodService() {
         button.setOnTouchListener { view, event ->
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
-                    view.animate().translationY(2f).setDuration(40L).start()
+                    view.animate().translationY(2f).setDuration(30L).start()
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    view.animate().translationY(0f).setDuration(60L).start()
+                    view.animate().translationY(0f).setDuration(50L).start()
                 }
             }
             false
