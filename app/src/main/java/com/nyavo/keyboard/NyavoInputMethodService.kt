@@ -259,7 +259,6 @@ class NyavoInputMethodService : InputMethodService() {
         LinearLayout.LayoutParams.MATCH_PARENT,
         dp(20)
     )
-    setPadding(dp(10), dp(20), dp(10), dp(20))
 }
         attachDragBehavior(handle, cluster)
         cluster.addView(handle)
