@@ -257,7 +257,7 @@ class NyavoInputMethodService : InputMethodService() {
     alpha = 0.6f
     layoutParams = LinearLayout.LayoutParams(
         LinearLayout.LayoutParams.MATCH_PARENT,
-        dp(20)
+        dp(40)
     )
 }
         attachDragBehavior(handle, cluster)
