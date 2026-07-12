@@ -104,20 +104,21 @@ class NyavoInputMethodService : InputMethodService() {
         container.addView(buildLetterRow(rows[0]))
         container.addView(buildLetterRow(rows[1]))
         container.addView(buildThirdLetterRow(rows[2]))
-             private fun buildLettersView(): View {
-        val container = verticalContainer()
-        val rows = KeyboardLayoutData.rowsFor(state.layoutType)
-
-        // Les 4 rangées officielles. 
-        // Rangée 1 + Rangée 2 = Exactement 50% de la hauteur totale du clavier.
-        container.addView(buildLetterRow(rows[0]))
-        container.addView(buildLetterRow(rows[1]))
-        container.addView(buildThirdLetterRow(rows[2]))
+        container.addView(buildPunctuationRow())
         container.addView(buildBottomRow())
 
         return container
     }
- ---------------------------------------------------------------
+
+    private fun buildEmojiView(): View {
+        val container = verticalContainer()
+        container.addView(buildEmojiCategoryTabs())
+        container.addView(buildEmojiGrid())
+        container.addView(buildEmojiBottomRow())
+        return container
+    }
+
+    // ---------------------------------------------------------------
     // Rangées — mode lettres
     // ---------------------------------------------------------------
 
