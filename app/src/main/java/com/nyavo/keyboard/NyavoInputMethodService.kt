@@ -521,7 +521,43 @@ class NyavoInputMethodService : InputMethodService() {
 
         return container
     }
-    // ----------------------------------------------------
+private fun buildEmojiBottomRow(): View {
+
+    val row = horizontalRow()
+
+    row.addView(
+        makeKeyButton(
+            label = "ABC",
+            weight = 1.6f,
+            isSpecial = true
+        ) {
+            switchToLettersMode()
+        }
+    )
+
+    row.addView(
+        makeKeyButton(
+            label = "⌫",
+            weight = 1.6f,
+            isSpecial = true
+        ) {
+            handleBackspace()
+        }
+    )
+
+    row.addView(
+        makeKeyButton(
+            label = "espace",
+            weight = 5f,
+            isSpecial = true
+        ) {
+            handleSpace()
+        }
+    )
+
+    return row
+}
+// ----------------------------------------------------
     // Actions clavier
     // ----------------------------------------------------
 
