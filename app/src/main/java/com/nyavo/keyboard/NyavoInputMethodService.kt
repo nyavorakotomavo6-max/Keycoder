@@ -99,7 +99,14 @@ class NyavoInputMethodService : InputMethodService() {
 
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
-        window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+
+        // CORRECTION : setLayout n'existe pas, utiliser attributes directement
+        window?.window?.attributes?.let { lp ->
+            lp.width = ViewGroup.LayoutParams.MATCH_PARENT
+            lp.height = ViewGroup.LayoutParams.WRAP_CONTENT
+            window?.window?.attributes = lp
+        }
+
         floatAnimators.forEach { if (!it.isRunning) it.start() }
     }
 
@@ -793,7 +800,8 @@ class NyavoInputMethodService : InputMethodService() {
         val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
         if (!keyStore.containsAlias(vaultKeyAlias)) {
             KeyGenerator.getInstance("AES", "AndroidKeyStore").apply {
-                init(KeyGenParameterSpec.Builder(vaultKeyAlias, KeyStore.Purpose.ENCRYPT or KeyStore.Purpose.DECRYPT)
+                // CORRECTION : KeyProperties.PURPOSE_ENCRYPT/DECRYPT (pas KeyStore.Purpose)
+                init(KeyGenParameterSpec.Builder(vaultKeyAlias, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
                     .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
                     .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
                     .build())
