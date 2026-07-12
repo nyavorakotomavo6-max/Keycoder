@@ -250,16 +250,17 @@ class NyavoInputMethodService : InputMethodService() {
         }
 
         val handle = TextView(this).apply {
-            text = "⠿"
-            setTextColor(ContextCompat.getColor(this@NyavoInputMethodService, R.color.key_text))
-            textSize = 14f
-            gravity = Gravity.CENTER
-            alpha = 0.6f
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(20)
-            )
-        }
+    text = "⠿"
+    setTextColor(ContextCompat.getColor(this@NyavoInputMethodService, R.color.key_text))
+    textSize = 14f
+    gravity = Gravity.CENTER
+    alpha = 0.6f
+    layoutParams = LinearLayout.LayoutParams(
+        LinearLayout.LayoutParams.MATCH_PARENT,
+        dp(20)
+    )
+    setPadding(dp(10), dp(20), dp(10), dp(20))
+}
         attachDragBehavior(handle, cluster)
         cluster.addView(handle)
 
