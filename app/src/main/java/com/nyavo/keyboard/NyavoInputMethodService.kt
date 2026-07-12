@@ -72,6 +72,10 @@ class NyavoInputMethodService : InputMethodService() {
 
     override fun onCreateInputView(): View {
         val root = layoutInflater.inflate(R.layout.keyboard_view, null) as FrameLayout
+        
+        // Sécurité initiale : force la gravité basse sur la fenêtre du service dès la création de la vue
+        window?.window?.setGravity(Gravity.BOTTOM)
+        
         val card = root.findViewById<LinearLayout>(R.id.keyboard_card)
         glowOverlay = root.findViewById(R.id.keyboard_glow_overlay)
         rootContainer = card
@@ -83,6 +87,15 @@ class NyavoInputMethodService : InputMethodService() {
 
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
+        
+        // CORRECTIF PRINCIPAL : Force explicitement l'ancrage en bas de l'écran 
+        // à chaque fois que la vue du clavier redevient active ou après une perturbation de focus.
+        window?.window?.let { win ->
+            val lp = win.attributes
+            lp.gravity = Gravity.BOTTOM
+            win.attributes = lp
+        }
+
         floatAnimators.forEach { if (!it.isRunning) it.start() }
     }
 
