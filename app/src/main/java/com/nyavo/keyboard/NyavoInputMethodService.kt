@@ -9,6 +9,7 @@ import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.inputmethod.EditorInfo
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.PopupWindow
@@ -16,46 +17,50 @@ import androidx.core.content.ContextCompat
 
 class NyavoInputMethodService : InputMethodService() {
 
-    private val state = KeyboardState()
+    private lateinit var state: KeyboardState
+    private var keyboardView: View? = null
     private val doubleTapDetector = DoubleTapDetector()
 
     // ========== Lifecycle ==========
 
-    override fun onStartInputView(info: android.view.inputmethod.EditorInfo?, restarting: Boolean) {
+    override fun onCreate() {
+        super.onCreate()
+        state = KeyboardState(this)
+    }
+
+    override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
-        val keyboardView = setInputView(createKeyboardView())
+        val view = onCreateInputView()
+        setInputView(view)
         
         // Hauteur = 35% de l'écran
         val keyboardHeight = (resources.displayMetrics.heightPixels * 0.35).toInt()
-        keyboardView.layoutParams?.height = keyboardHeight
+        view.layoutParams?.height = keyboardHeight
     }
 
     override fun onCreateInputView(): View {
-        return createKeyboardView()
-    }
-
-    private fun createKeyboardView(): View {
-        val view = currentInputView ?: layoutInflater.inflate(R.layout.keyboard_view, null)
+        val view = layoutInflater.inflate(R.layout.keyboard_view, null)
+        keyboardView = view
         buildKeyboard(view)
         return view
     }
 
     // ========== Construction du clavier ==========
 
-    private fun buildKeyboard(view: View) {
-        val row1 = view.findViewById<LinearLayout>(R.id.row1)
+    private fun buildKeyboard(view: View) {        val row1 = view.findViewById<LinearLayout>(R.id.row1)
         val row2 = view.findViewById<LinearLayout>(R.id.row2)
         val row3 = view.findViewById<LinearLayout>(R.id.row3)
         val rowSpace = view.findViewById<LinearLayout>(R.id.row_space)
+
         row1.removeAllViews()
         row2.removeAllViews()
         row3.removeAllViews()
         rowSpace.removeAllViews()
 
-        val layout = KeyboardLayoutData.getLayout(state.layoutType)
+        val rows = KeyboardLayoutData.rowsFor(state.layoutType)
 
         // Ligne 1
-        layout.row1.forEach { letter ->
+        rows[0].forEach { letter ->
             row1.addView(makeKeyButton(letter,
                 onClick = { handleKeyPress(letter) },
                 onLongClick = { btn -> showLongPressPopup(letter, btn); true }
@@ -63,7 +68,7 @@ class NyavoInputMethodService : InputMethodService() {
         }
 
         // Ligne 2
-        layout.row2.forEach { letter ->
+        rows[1].forEach { letter ->
             row2.addView(makeKeyButton(letter,
                 onClick = { handleKeyPress(letter) },
                 onLongClick = { btn -> showLongPressPopup(letter, btn); true }
@@ -71,7 +76,7 @@ class NyavoInputMethodService : InputMethodService() {
         }
 
         // Ligne 3
-        layout.row3.forEach { letter ->
+        rows[2].forEach { letter ->
             row3.addView(makeKeyButton(letter,
                 onClick = { handleKeyPress(letter) },
                 onLongClick = { btn -> showLongPressPopup(letter, btn); true }
@@ -91,19 +96,19 @@ class NyavoInputMethodService : InputMethodService() {
         rowSpace.addView(makeSpecialButton(".", 1f) {
             currentInputConnection?.commitText(".", 1)
         })
-        rowSpace.addView(makeSpecialButton("↵", 1f) {
-            currentInputConnection?.commitText("\n", 1)
+        rowSpace.addView(makeSpecialButton("↵", 1f) {            currentInputConnection?.commitText("\n", 1)
         })
     }
 
     // ========== Création des boutons ==========
+
     private fun makeKeyButton(
         label: String,
         onClick: (Button) -> Unit,
         onLongClick: ((Button) -> Boolean)? = null
     ): Button {
-        return Button(context).apply {
-            text = if (state.isShifted) label.uppercase() else label
+        return Button(this).apply {
+            text = if (state.isUppercase()) label.uppercase() else label
             textSize = 24f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
@@ -115,7 +120,7 @@ class NyavoInputMethodService : InputMethodService() {
             }
 
             setPadding(8, 8, 8, 8)
-            background = ContextCompat.getDrawable(context, R.drawable.key_background)
+            background = ContextCompat.getDrawable(this@NyavoInputMethodService, R.drawable.key_background)
             stateListAnimator = null
 
             setOnClickListener { onClick(this) }
@@ -126,7 +131,7 @@ class NyavoInputMethodService : InputMethodService() {
     }
 
     private fun makeSpecialButton(label: String, weight: Float, onClick: () -> Unit): Button {
-        return Button(context).apply {
+        return Button(this).apply {
             text = label
             textSize = 20f
             setTextColor(Color.WHITE)
@@ -134,22 +139,20 @@ class NyavoInputMethodService : InputMethodService() {
                 marginStart = 3.dpToPx()
                 marginEnd = 3.dpToPx()
             }
-            background = ContextCompat.getDrawable(context, R.drawable.key_background)
+            background = ContextCompat.getDrawable(this@NyavoInputMethodService, R.drawable.key_background)
             stateListAnimator = null
             setOnClickListener { onClick() }
         }
     }
 
     // ========== Gestion des touches ==========
-
     private fun handleKeyPress(letter: String) {
-        val textToCommit = if (state.isShifted) letter.uppercase() else letter
+        val textToCommit = if (state.isUppercase()) letter.uppercase() else letter
         doubleTapDetector.onTap(
-            onSingleTap = {                currentInputConnection?.commitText(textToCommit, 1)
-                if (state.isShifted) {
-                    state.isShifted = false
-                    refreshKeyboard()
-                }
+            onSingleTap = {
+                currentInputConnection?.commitText(textToCommit, 1)
+                state.consumeShiftAfterLetter()
+                refreshKeyboard()
             },
             onDoubleTap = {
                 handleDoubleTapLetter(letter)
@@ -175,14 +178,14 @@ class NyavoInputMethodService : InputMethodService() {
         val x = location[0] + (anchorView.width / 2) - (popupWidth / 2)
         val y = location[1] - 140.dpToPx()
 
-        val popupContent = LinearLayout(context).apply {
+        val popupContent = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(8, 8, 8, 8)
             setBackgroundColor(Color.parseColor("#FF1A1A1A"))
         }
 
         symbols.forEach { symbol ->
-            val btn = Button(context).apply {
+            val btn = Button(this).apply {
                 text = symbol
                 textSize = 20f
                 setTextColor(Color.WHITE)
@@ -191,10 +194,10 @@ class NyavoInputMethodService : InputMethodService() {
                     ViewGroup.LayoutParams.WRAP_CONTENT
                 ).apply {
                     marginStart = 4.dpToPx()
-                    marginEnd = 4.dpToPx()
-                }
-                background = ContextCompat.getDrawable(context, R.drawable.key_background)
-                setOnClickListener {                    currentInputConnection?.commitText(symbol, 1)
+                    marginEnd = 4.dpToPx()                }
+                background = ContextCompat.getDrawable(this@NyavoInputMethodService, R.drawable.key_background)
+                setOnClickListener {
+                    currentInputConnection?.commitText(symbol, 1)
                     popup.dismiss()
                 }
             }
@@ -240,10 +243,10 @@ class NyavoInputMethodService : InputMethodService() {
                 // Programmer un single tap
                 val runnable = Runnable {
                     onSingleTap()
-                    lastTapTime = 0L
-                }
+                    lastTapTime = 0L                }
                 pendingSingleTap = runnable
-                handler.postDelayed(runnable, DOUBLE_TAP_TIMEOUT)                lastTapTime = now
+                handler.postDelayed(runnable, DOUBLE_TAP_TIMEOUT)
+                lastTapTime = now
             }
         }
     }
@@ -251,7 +254,7 @@ class NyavoInputMethodService : InputMethodService() {
     // ========== Helpers ==========
 
     private fun refreshKeyboard() {
-        currentInputView?.let { buildKeyboard(it) }
+        keyboardView?.let { buildKeyboard(it) }
     }
 
     private fun Int.dpToPx(): Int {
