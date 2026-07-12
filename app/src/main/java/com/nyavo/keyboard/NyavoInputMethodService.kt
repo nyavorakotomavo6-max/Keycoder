@@ -2,6 +2,7 @@ package com.nyavo.keyboard
 
 import android.animation.ObjectAnimator
 import android.animation.ValueAnimator
+import android.graphics.Rect
 import android.graphics.Typeface
 import android.inputmethodservice.InputMethodService
 import android.view.Gravity
@@ -431,34 +432,42 @@ class NyavoInputMethodService : InputMethodService() {
             }
         }
         
-        // On passe le label de la touche pour pouvoir l'afficher dans la pop-up
         attachSinkAnimation(button, label, isSpecial)
         return button
     }
 
     /**
      * Gère l'enfoncement, le retour vibratoire (haptique) et la pop-up de prévisualisation.
+     * Amélioré pour empêcher la pop-up de rester coincée si le doigt glisse.
      */
     private fun attachSinkAnimation(button: Button, label: String, isSpecial: Boolean) {
         button.setOnTouchListener { view, event ->
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
-                    // 1. Vibration instantanée standardisée pour les claviers
+                    // 1. Vibration instantanée standardisée
                     view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
 
                     // 2. Animation d'enfoncement
                     view.animate().translationY(2f).setDuration(40L).start()
 
-                    // 3. Affichage de la pop-up visuelle (uniquement pour les vrais caractères/lettres)
+                    // 3. Affichage de la pop-up
                     if (!isSpecial && label.isNotEmpty()) {
                         showCharacterPopup(view, label)
                     }
                 }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    // 1. Retour à la position d'origine
-                    view.animate().translationY(0f).setDuration(60L).start()
+                
+                MotionEvent.ACTION_MOVE -> {
+                    // Si le doigt glisse en dehors de la touche physique, on annule tout !
+                    val rect = Rect(0, 0, view.width, view.height)
+                    if (!rect.contains(event.x.toInt(), event.y.toInt())) {
+                        view.animate().translationY(0f).setDuration(60L).start()
+                        dismissActivePopup()
+                    }
+                }
 
-                    // 2. Fermeture immédiate de la pop-up
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    // Retour à la position normale et fermeture de la pop-up
+                    view.animate().translationY(0f).setDuration(60L).start()
                     dismissActivePopup()
                 }
             }
@@ -472,14 +481,12 @@ class NyavoInputMethodService : InputMethodService() {
     private fun showCharacterPopup(anchorView: View, text: String) {
         dismissActivePopup()
 
-        // Création dynamique de la vue de prévisualisation
         val popupTextView = TextView(this).apply {
             this.text = text
             gravity = Gravity.CENTER
             textSize = 24f
             typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
             setTextColor(ContextCompat.getColor(context, R.color.key_text))
-            // On réutilise le background des touches spéciales pour contraster proprement
             setBackgroundResource(R.drawable.key_bg_special) 
             setPadding(dp(12), dp(6), dp(12), dp(6))
         }
@@ -489,15 +496,13 @@ class NyavoInputMethodService : InputMethodService() {
             ViewGroup.LayoutParams.WRAP_CONTENT,
             ViewGroup.LayoutParams.WRAP_CONTENT
         ).apply {
-            isClippingEnabled = false // Permet de sortir légèrement des limites du clavier si besoin
+            isClippingEnabled = false
         }
 
         activePopupWindow = popup
 
-        // Calcul de la position : pile au-dessus du bouton
         anchorView.post {
             if (anchorView.isShown) {
-                // Décalage vertical vers le haut : hauteur de la touche + marge de sécurité de 10dp
                 val yOffset = -(anchorView.height + dp(10))
                 popup.showAsDropDown(anchorView, (anchorView.width - dp(45)) / 2, yOffset, Gravity.NO_GRAVITY)
             }
