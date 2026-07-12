@@ -8,6 +8,7 @@ import android.os.Handler
 import android.os.Looper
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
+import android.util.Base64
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.KeyEvent
@@ -24,11 +25,12 @@ import android.widget.PopupWindow
 import android.widget.TextView
 import androidx.core.content.ContextCompat
 import java.security.KeyStore
-import java.util.Base64
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
+import kotlin.math.abs
+import kotlin.math.hypot
 
 class NyavoInputMethodService : InputMethodService() {
 
@@ -97,10 +99,7 @@ class NyavoInputMethodService : InputMethodService() {
 
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
-
         window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-        render() // Re-render pour détecter les champs password et afficher 🔐 si besoin
-
         floatAnimators.forEach { if (!it.isRunning) it.start() }
     }
 
@@ -262,7 +261,6 @@ class NyavoInputMethodService : InputMethodService() {
     private fun buildDevRow(): View {
         val row = horizontalRow()
 
-        // Raccourcis d'édition (Gauche) — Silence tactique
         row.addView(makeKeyButton("✂️", 0.9f, heightDp = 34, isSpecial = true, hapticFeedback = -1) { 
             handleEditAction(android.R.id.cut) 
         })
@@ -270,7 +268,6 @@ class NyavoInputMethodService : InputMethodService() {
             handleEditAction(android.R.id.paste) 
         })
 
-        // Rangée de Symboles Rapides (Centre) — Silence tactile
         val devSymbols = listOf("{", "}", "[", "]", "(", ")", ";", "=")
         for (symbol in devSymbols) {
             row.addView(makeKeyButton(symbol, 1.0f, heightDp = 34, isSpecial = false, textSizeSp = 16f, hapticFeedback = -1) {
@@ -278,12 +275,10 @@ class NyavoInputMethodService : InputMethodService() {
             })
         }
 
-        // Raccourci Tout Sélectionner (Droite) — Silence tactique
         row.addView(makeKeyButton("ALL", 1.1f, heightDp = 34, isSpecial = true, textSizeSp = 11f, hapticFeedback = -1) { 
             handleEditAction(android.R.id.selectAll) 
         })
 
-        // BOUTON VAULT : visible uniquement dans un champ mot de passe
         if (isPasswordField()) {
             row.addView(makeKeyButton("🔐", 1.0f, heightDp = 34, isSpecial = true, hapticFeedback = HapticFeedbackConstants.CONFIRM) {
                 showVaultPopup()
@@ -323,7 +318,6 @@ class NyavoInputMethodService : InputMethodService() {
     private fun buildThirdLetterRow(letters: List<String>): View {
         val row = horizontalRow()
 
-        // Shift avec Vault Mode (appui long 3s)
         val shift = Button(this).apply {
             text = "⇧"
             isAllCaps = false
@@ -343,7 +337,7 @@ class NyavoInputMethodService : InputMethodService() {
             }
         }
         shiftButton = shift
-        attachShiftBehavior(shift) // Tap = shift, Long-press 3s = Vault
+        attachShiftBehavior(shift)
         row.addView(shift)
 
         for (letter in letters) {
@@ -463,7 +457,7 @@ class NyavoInputMethodService : InputMethodService() {
                     if (cursorModeActive) {
                         button.setBackgroundResource(R.drawable.key_bg_special)
                     } else {
-                        view.performHapticFeedback(HapticFeedbackConstants.CONFIRM) // HAPTIC: CONFIRM pour espace
+                        view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
                         triggerGlowFlash(view)
                         handleSpace()
                     }
@@ -592,7 +586,7 @@ class NyavoInputMethodService : InputMethodService() {
                 MotionEvent.ACTION_DOWN -> {
                     longPressTriggered = false
                     view.isPressed = true
-                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK) // HAPTIC: TICK pour lettres
+                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                     triggerGlowFlash(view)
                     showPreview(view, letter.uppercase())
                     handleLetterTap(letter)
@@ -813,11 +807,11 @@ class NyavoInputMethodService : InputMethodService() {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE, getVaultKey()) }
         val iv = cipher.iv
         val cipherText = cipher.doFinal(plain.toByteArray(Charsets.UTF_8))
-        return Base64.getEncoder().encodeToString(iv + cipherText)
+        return Base64.encodeToString(iv + cipherText, Base64.NO_WRAP)
     }
 
     private fun decryptVault(encrypted: String): String {
-        val bytes = Base64.getDecoder().decode(encrypted)
+        val bytes = Base64.decode(encrypted, Base64.NO_WRAP)
         val iv = bytes.copyOfRange(0, 12)
         val cipherText = bytes.copyOfRange(12, bytes.size)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply {
