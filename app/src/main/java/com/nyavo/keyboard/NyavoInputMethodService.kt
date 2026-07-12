@@ -257,7 +257,7 @@ class NyavoInputMethodService : InputMethodService() {
     alpha = 0.6f
     layoutParams = LinearLayout.LayoutParams(
         LinearLayout.LayoutParams.MATCH_PARENT,
-        dp(40)
+        dp(80)
     )
 }
         attachDragBehavior(handle, cluster)
@@ -289,38 +289,24 @@ class NyavoInputMethodService : InputMethodService() {
     var startRawY = 0f
     var startTranslationX = 0f
     var startTranslationY = 0f
-    var isDragging = false
-    val touchSlop = android.view.ViewConfiguration.get(this).scaledTouchSlop
 
-    target.setOnTouchListener { _, event ->
+    handle.setOnTouchListener { _, event ->
         when (event.action) {
             MotionEvent.ACTION_DOWN -> {
                 startRawX = event.rawX
                 startRawY = event.rawY
                 startTranslationX = target.translationX
                 startTranslationY = target.translationY
-                isDragging = false
-                false  // false pour laisser passer le tap aux boutons
+                true
             }
             MotionEvent.ACTION_MOVE -> {
                 val dx = event.rawX - startRawX
                 val dy = event.rawY - startRawY
-                if (!isDragging && (Math.abs(dx) > touchSlop || Math.abs(dy) > touchSlop)) {
-                    isDragging = true
-                }
-                if (isDragging) {
-                    target.translationX = startTranslationX + dx
-                    target.translationY = startTranslationY + dy
-                    true
-                } else {
-                    false
-                }
+                target.translationX = startTranslationX + dx
+                target.translationY = startTranslationY + dy
+                true
             }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                isDragging = false
-                false
-            }
-            else -> false
+            else -> true
         }
     }
 }
