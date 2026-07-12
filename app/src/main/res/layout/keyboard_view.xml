@@ -6,7 +6,6 @@
     android:layout_gravity="bottom"
     android:background="@android:color/transparent">
 
-    <!-- Overlay de glow : wrap_content pour ne pas forcer la hauteur de la fenêtre -->
     <View
         android:id="@+id/keyboard_glow_overlay"
         android:layout_width="match_parent"
@@ -14,13 +13,13 @@
         android:background="@android:color/transparent"
         android:visibility="invisible" />
 
-    <!-- Carte contenant les touches : seul élément avec un fond opaque -->
+    <!-- Fond opaque noir (ou remplace par @drawable/keyboard_card_bg si tu l'as) -->
     <LinearLayout
         android:id="@+id/keyboard_card"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
         android:layout_gravity="bottom"
-        android:background="@drawable/keyboard_card_bg" />
+        android:background="#FF1A1A1A" />
 
 </FrameLayout>
