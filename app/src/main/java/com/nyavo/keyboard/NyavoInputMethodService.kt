@@ -17,8 +17,8 @@ import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.PopupWindow
-import android.widget.TextView
 import androidx.core.content.ContextCompat
+import kotlin.math.abs
 
 class NyavoInputMethodService : InputMethodService() {
 
@@ -32,9 +32,6 @@ class NyavoInputMethodService : InputMethodService() {
 
     private val topRowDigits = listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0")
 
-    // Tailles de texte : agrandies pour les touches à fort impact
-    // ergonomique (Entrée, Suppr, Shift, flèches) comme demandé, tout en
-    // gardant les lettres normales lisibles sans déséquilibrer le clavier.
     private val normalTextSizeSp = 18f
     private val bigTextSizeSp = 26f
 
@@ -50,6 +47,9 @@ class NyavoInputMethodService : InputMethodService() {
 
     private val longPressDelayMs = 320L
 
+    // --- Déplacement du curseur via glissé sur la barre d'espace ---
+    private val cursorStepThresholdPx get() = dp(24)
+
     override fun onCreate() {
         super.onCreate()
         state = KeyboardState(this)
@@ -60,21 +60,7 @@ class NyavoInputMethodService : InputMethodService() {
         val card = root.findViewById<LinearLayout>(R.id.keyboard_card)
         rootContainer = card
         render()
-
-        val arrowCluster = buildArrowCluster()
-        val arrowParams = FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.WRAP_CONTENT,
-            FrameLayout.LayoutParams.WRAP_CONTENT
-        ).apply {
-            gravity = Gravity.TOP or Gravity.END
-            topMargin = dp(2)
-            rightMargin = dp(2)
-        }
-        root.addView(arrowCluster, arrowParams)
-
         addFloatingAnimation(card)
-        addFloatingAnimation(arrowCluster, duration = 2100L)
-
         return root
     }
 
@@ -185,7 +171,7 @@ class NyavoInputMethodService : InputMethodService() {
         row.addView(
             makeKeyButton(layoutAbbreviation(state.layoutType), 1.2f, isSpecial = true) { cycleLayout() }
         )
-        row.addView(makeKeyButton("espace", 5f, isSpecial = true) { handleSpace() })
+        row.addView(makeSpaceButton(5f))
         row.addView(
             makeKeyButton("↵", 1.8f, isSpecial = true, textSizeSp = bigTextSizeSp) { handleEnter() }
         )
@@ -235,84 +221,22 @@ class NyavoInputMethodService : InputMethodService() {
         row.addView(
             makeKeyButton("⌫", 1.6f, isSpecial = true, textSizeSp = bigTextSizeSp) { handleBackspace() }
         )
-        row.addView(makeKeyButton("espace", 5f, isSpecial = true) { handleSpace() })
+        row.addView(makeSpaceButton(5f))
         return row
     }
 
     // ---------------------------------------------------------------
-    // Flèches directionnelles — cluster mobile, sans fond
+    // Barre d'espace : tap = espace, appui long + glissé = déplacement
+    // du curseur (gauche/droite = caractère, haut/bas = ligne). Chaque
+    // tranche de ~24dp parcourue dans une direction déplace le curseur
+    // d'un cran ; un glissé rapide et long parcourt donc plusieurs
+    // tranches d'affilée, ce qui déplace le curseur de plusieurs
+    // lettres, exactement comme un geste répété.
     // ---------------------------------------------------------------
 
-    private fun buildArrowCluster(): LinearLayout {
-        val cluster = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(2), dp(2), dp(2), dp(2))
-        }
-
-        val handle = TextView(this).apply {
-    text = "⠿"
-    setTextColor(ContextCompat.getColor(this@NyavoInputMethodService, R.color.key_text))
-    textSize = 14f
-    gravity = Gravity.CENTER
-    alpha = 0.6f
-    layoutParams = LinearLayout.LayoutParams(
-        LinearLayout.LayoutParams.MATCH_PARENT,
-        dp(80)
-    )
-}
-        attachDragBehavior(handle, cluster)
-        cluster.addView(handle)
-
-        val topRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        topRow.addView(makeArrowSpacer())
-        topRow.addView(makeArrowButton("↑", KeyEvent.KEYCODE_DPAD_UP))
-        topRow.addView(makeArrowSpacer())
-
-        val bottomRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        bottomRow.addView(makeArrowButton("←", KeyEvent.KEYCODE_DPAD_LEFT))
-        bottomRow.addView(makeArrowButton("↓", KeyEvent.KEYCODE_DPAD_DOWN))
-        bottomRow.addView(makeArrowButton("→", KeyEvent.KEYCODE_DPAD_RIGHT))
-
-        cluster.addView(topRow)
-        cluster.addView(bottomRow)
-        return cluster
-    }
-
-    /**
-     * Permet de faire glisser tout le cluster de flèches via sa poignée
-     * dédiée (⠿). On isole le glissé sur cette poignée, plutôt que sur le
-     * cluster entier, pour ne pas interférer avec le tap normal sur
-     * chaque flèche.
-     */
- private fun attachDragBehavior(handle: View, target: View) {
-    var startRawX = 0f
-    var startRawY = 0f
-    var startTranslationX = 0f
-    var startTranslationY = 0f
-
-    handle.setOnTouchListener { _, event ->
-        when (event.action) {
-            MotionEvent.ACTION_DOWN -> {
-                startRawX = event.rawX
-                startRawY = event.rawY
-                startTranslationX = target.translationX
-                startTranslationY = target.translationY
-                true
-            }
-            MotionEvent.ACTION_MOVE -> {
-                val dx = event.rawX - startRawX
-                val dy = event.rawY - startRawY
-                target.translationX = startTranslationX + dx
-                target.translationY = startTranslationY + dy
-                true
-            }
-            else -> true
-        }
-    }
-}
-    private fun makeArrowButton(label: String, keyCode: Int): Button {
+    private fun makeSpaceButton(weight: Float): Button {
         val button = Button(this)
-        button.text = label
+        button.text = "espace"
         button.isAllCaps = false
         button.gravity = Gravity.CENTER
         button.setPadding(0, 0, 0, 0)
@@ -325,35 +249,119 @@ class NyavoInputMethodService : InputMethodService() {
         button.elevation = 0f
         button.typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
         button.setTextColor(ContextCompat.getColor(this, R.color.key_text))
-        button.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, bigTextSizeSp)
-        // Pas de fond : uniquement le symbole flottant, comme demandé.
-        button.setBackgroundColor(android.graphics.Color.TRANSPARENT)
+        button.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, normalTextSizeSp)
+        button.setBackgroundResource(R.drawable.key_bg_special)
         button.isHapticFeedbackEnabled = true
-        button.layoutParams = LinearLayout.LayoutParams(dp(44), dp(44)).apply {
-            setMargins(dp(2), dp(2), dp(2), dp(2))
-        }
-        button.setOnClickListener {
-            it.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-            sendArrowKeyEvent(keyCode)
-        }
-        attachSinkAnimation(button)
+
+        val params = LinearLayout.LayoutParams(0, dp(standardKeyHeightDp), weight)
+        params.setMargins(dp(3), dp(3), dp(3), dp(3))
+        button.layoutParams = params
+
+        attachSpaceGestureBehavior(button)
         return button
     }
 
-    private fun makeArrowSpacer(): View {
-        return View(this).apply {
-            layoutParams = LinearLayout.LayoutParams(dp(44), dp(44)).apply {
-                setMargins(dp(2), dp(2), dp(2), dp(2))
+    private fun attachSpaceGestureBehavior(button: Button) {
+        var cursorModeActive = false
+        var lastStepX = 0f
+        var lastStepY = 0f
+
+        val longPressRunnable = Runnable {
+            cursorModeActive = true
+            button.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+            button.setBackgroundResource(R.drawable.key_bg_shift)
+        }
+
+        button.setOnTouchListener { view, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    cursorModeActive = false
+                    lastStepX = event.rawX
+                    lastStepY = event.rawY
+                    view.animate().translationY(2f).setDuration(40L).start()
+                    longPressHandler.postDelayed(longPressRunnable, longPressDelayMs)
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (cursorModeActive) {
+                        processCursorDrag(event.rawX, event.rawY, lastStepX, lastStepY) { newX, newY ->
+                            lastStepX = newX
+                            lastStepY = newY
+                        }
+                    }
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    longPressHandler.removeCallbacks(longPressRunnable)
+                    view.animate().translationY(0f).setDuration(60L).start()
+                    if (cursorModeActive) {
+                        button.setBackgroundResource(R.drawable.key_bg_special)
+                    } else {
+                        view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                        handleSpace()
+                    }
+                    cursorModeActive = false
+                    true
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    longPressHandler.removeCallbacks(longPressRunnable)
+                    view.animate().translationY(0f).setDuration(60L).start()
+                    button.setBackgroundResource(R.drawable.key_bg_special)
+                    cursorModeActive = false
+                    true
+                }
+                else -> false
             }
         }
     }
 
-    private fun sendArrowKeyEvent(keyCode: Int) {
+    /**
+     * Calcule si le doigt a parcouru une "tranche" complète depuis le
+     * dernier pas enregistré, dans la direction dominante (horizontale
+     * ou verticale). Si oui, déclenche un déplacement du curseur d'un
+     * cran et met à jour le point de référence pour la tranche suivante.
+     */
+    private fun processCursorDrag(
+        currentX: Float,
+        currentY: Float,
+        lastStepX: Float,
+        lastStepY: Float,
+        onStepConsumed: (Float, Float) -> Unit
+    ) {
+        val dx = currentX - lastStepX
+        val dy = currentY - lastStepY
+
+        if (abs(dx) >= abs(dy)) {
+            if (dx >= cursorStepThresholdPx) {
+                moveCursor(KeyEvent.KEYCODE_DPAD_RIGHT)
+                onStepConsumed(lastStepX + cursorStepThresholdPx, currentY)
+            } else if (dx <= -cursorStepThresholdPx) {
+                moveCursor(KeyEvent.KEYCODE_DPAD_LEFT)
+                onStepConsumed(lastStepX - cursorStepThresholdPx, currentY)
+            }
+        } else {
+            if (dy >= cursorStepThresholdPx) {
+                moveCursor(KeyEvent.KEYCODE_DPAD_DOWN)
+                onStepConsumed(currentX, lastStepY + cursorStepThresholdPx)
+            } else if (dy <= -cursorStepThresholdPx) {
+                moveCursor(KeyEvent.KEYCODE_DPAD_UP)
+                onStepConsumed(currentX, lastStepY - cursorStepThresholdPx)
+            }
+        }
+    }
+
+    private fun moveCursor(keyCode: Int) {
         val ic = currentInputConnection ?: return
         val now = System.currentTimeMillis()
         ic.sendKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_DOWN, keyCode, 0))
         ic.sendKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_UP, keyCode, 0))
+        val button = lastCursorFeedbackTarget
+        button?.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
     }
+
+    // Petit point d'accroche pour le retour haptique à chaque pas ; volontairement
+    // simple pour ne pas complexifier la signature des fonctions ci-dessus.
+    private var lastCursorFeedbackTarget: View? = null
 
     // ---------------------------------------------------------------
     // Touches lettres — gestion tactile complète (tap / appui long+glisse)
