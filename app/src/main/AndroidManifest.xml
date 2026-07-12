@@ -23,6 +23,7 @@
             android:name=".NyavoInputMethodService"
             android:exported="true"
             android:label="@string/ime_name"
+            android:theme="@style/Theme.NyavoKeyboard.Ime"
             android:permission="android.permission.BIND_INPUT_METHOD">
             <intent-filter>
                 <action android:name="android.view.InputMethod" />
