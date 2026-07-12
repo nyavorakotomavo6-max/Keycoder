@@ -22,6 +22,11 @@ class NyavoInputMethodService : InputMethodService() {
     private var currentEmojiCategoryIndex = 0
     private var floatAnimator: ObjectAnimator? = null
 
+    // Hauteur standard d'une touche, calquée sur les proportions Gboard
+    // (~42-44dp) plutôt que sur la version précédente (58dp), qui faisait
+    // occuper au clavier près de la moitié de l'écran.
+    private val standardKeyHeightDp = 42
+
     override fun onCreate() {
         super.onCreate()
         state = KeyboardState(this)
@@ -174,7 +179,7 @@ class NyavoInputMethodService : InputMethodService() {
         EmojiData.CATEGORIES.forEachIndexed { index, category ->
             val label = category.label.take(4)
             row.addView(
-                makeKeyButton(label, 1f, heightDp = 44, isSpecial = true) { selectEmojiCategory(index) }
+                makeKeyButton(label, 1f, heightDp = 34, isSpecial = true) { selectEmojiCategory(index) }
             )
         }
         return row
@@ -189,7 +194,7 @@ class NyavoInputMethodService : InputMethodService() {
             val row = horizontalRow()
             for (emoji in emojiRow) {
                 row.addView(
-                    makeKeyButton(emoji, 1f, heightDp = 56, isSpecial = false) { handleEmojiTap(emoji) }
+                    makeKeyButton(emoji, 1f, heightDp = 42, isSpecial = false) { handleEmojiTap(emoji) }
                 )
             }
             val missing = 4 - emojiRow.size
@@ -342,7 +347,7 @@ class NyavoInputMethodService : InputMethodService() {
     private fun makeKeyButton(
         label: String,
         weight: Float,
-        heightDp: Int = 58,
+        heightDp: Int = standardKeyHeightDp,
         isSpecial: Boolean = false,
         onLongClick: (() -> Unit)? = null,
         onClick: () -> Unit
@@ -365,8 +370,11 @@ class NyavoInputMethodService : InputMethodService() {
             if (isSpecial) R.drawable.key_bg_special else R.drawable.key_bg_normal
         )
 
+        // Marges resserrées (5dp -> 2.5dp) pour rapprocher l'espacement
+        // vertical/horizontal des proportions Gboard, sans coller les
+        // touches entre elles au point de nuire à la précision de frappe.
         val params = LinearLayout.LayoutParams(0, dp(heightDp), weight)
-        params.setMargins(dp(5), dp(5), dp(5), dp(5))
+        params.setMargins(dpF(2.5f), dpF(2.5f), dpF(2.5f), dpF(2.5f))
         button.layoutParams = params
         button.setOnClickListener { onClick() }
         if (onLongClick != null) {
@@ -383,11 +391,8 @@ class NyavoInputMethodService : InputMethodService() {
      * Effet "enfoncement d'un pixel" : léger déplacement vertical au
      * contact du doigt, retour immédiat au relâchement. Le changement de
      * couleur (ombre/lumière) est géré automatiquement par le selector
-     * XML via l'état natif Android state_pressed, donc aucune logique
-     * supplémentaire n'est nécessaire ici — seule la translation ajoute
-     * la sensation tactile "mécanique rétro". Transformation GPU pure,
-     * aucun recalcul de layout : coût négligeable, tient 60 FPS sans
-     * effort.
+     * XML via l'état natif Android state_pressed. Transformation GPU
+     * pure, aucun recalcul de layout : coût négligeable, tient 60 FPS.
      */
     private fun attachSinkAnimation(button: Button) {
         button.setOnTouchListener { view, event ->
@@ -405,11 +410,15 @@ class NyavoInputMethodService : InputMethodService() {
 
     private fun makeSpacer(weight: Float): View {
         return View(this).apply {
-            layoutParams = LinearLayout.LayoutParams(0, dp(58), weight)
+            layoutParams = LinearLayout.LayoutParams(0, dp(standardKeyHeightDp), weight)
         }
     }
 
     private fun dp(value: Int): Int {
+        return (value * resources.displayMetrics.density).toInt()
+    }
+
+    private fun dpF(value: Float): Int {
         return (value * resources.displayMetrics.density).toInt()
     }
 }
