@@ -66,7 +66,6 @@ class NyavoInputMethodService : InputMethodService() {
     }
 
     override fun onCreateInputView(): View {
-        // CORRECTION : éviter l'accumulation d'animateurs si le clavier est recréé
         floatAnimators.forEach { it.cancel() }
         floatAnimators.clear()
 
@@ -100,7 +99,6 @@ class NyavoInputMethodService : InputMethodService() {
         floatAnimators.forEach { it.cancel() }
         dismissPopup()
         dismissPreview()
-        // CORRECTION : nettoyer tous les callbacks pour éviter les fuites mémoire
         longPressHandler.removeCallbacksAndMessages(null)
     }
 
@@ -110,7 +108,6 @@ class NyavoInputMethodService : InputMethodService() {
         floatAnimators.clear()
         dismissPopup()
         dismissPreview()
-        // CORRECTION : nettoyer tous les callbacks pour éviter les fuites mémoire
         longPressHandler.removeCallbacksAndMessages(null)
     }
 
@@ -130,7 +127,6 @@ class NyavoInputMethodService : InputMethodService() {
 
     private fun triggerGlowFlash(origin: View) {
         val overlay = glowOverlay ?: return
-        // CORRECTION : vérifier que l'overlay est bien attaché avant de révéler
         if (overlay.width == 0 || overlay.height == 0 || !overlay.isAttachedToWindow) return
 
         val originLoc = IntArray(2)
@@ -176,7 +172,6 @@ class NyavoInputMethodService : InputMethodService() {
     }
 
     private fun showPreview(anchor: View, label: String) {
-        // CORRECTION : ne pas tenter d'afficher si l'ancre n'est pas attachée
         if (!anchor.isAttachedToWindow) return
         
         val popup = previewPopup ?: return
@@ -228,7 +223,6 @@ class NyavoInputMethodService : InputMethodService() {
         val container = verticalContainer()
         val rows = KeyboardLayoutData.rowsFor(state.layoutType)
 
-        // Insertion de la barre d'outils développeur tout en haut
         container.addView(buildDevRow())
 
         container.addView(buildLetterRow(rows[0], isTopRow = true))
@@ -248,13 +242,12 @@ class NyavoInputMethodService : InputMethodService() {
     }
 
     // ---------------------------------------------------------------
-    // NOUVEAU : Fonctionnalités Développeur (1, 2, 3)
+    // Barre d'outils Développeur
     // ---------------------------------------------------------------
 
     private fun buildDevRow(): View {
         val row = horizontalRow()
 
-        // Raccourcis d'édition (Gauche)
         row.addView(makeKeyButton("✂️", 0.9f, heightDp = 34, isSpecial = true) { 
             handleEditAction(android.R.id.cut) 
         })
@@ -262,7 +255,6 @@ class NyavoInputMethodService : InputMethodService() {
             handleEditAction(android.R.id.paste) 
         })
 
-        // Rangée de Symboles Rapides (Centre)
         val devSymbols = listOf("{", "}", "[", "]", "(", ")", ";", "=")
         for (symbol in devSymbols) {
             row.addView(makeKeyButton(symbol, 1.0f, heightDp = 34, isSpecial = false, textSizeSp = 16f) {
@@ -270,7 +262,6 @@ class NyavoInputMethodService : InputMethodService() {
             })
         }
 
-        // Raccourci Tout Sélectionner (Droite)
         row.addView(makeKeyButton("ALL", 1.1f, heightDp = 34, isSpecial = true, textSizeSp = 11f) { 
             handleEditAction(android.R.id.selectAll) 
         })
@@ -281,7 +272,6 @@ class NyavoInputMethodService : InputMethodService() {
     private fun handleDevSymbolTap(symbol: String) {
         val ic = currentInputConnection ?: return
         
-        // Auto-closing pairs : fermeture automatique et recul du curseur
         when (symbol) {
             "{" -> { ic.commitText("{}", 1); moveCursor(KeyEvent.KEYCODE_DPAD_LEFT) }
             "[" -> { ic.commitText("[]", 1); moveCursor(KeyEvent.KEYCODE_DPAD_LEFT) }
@@ -386,7 +376,7 @@ class NyavoInputMethodService : InputMethodService() {
         }
 
         val params = LinearLayout.LayoutParams(0, dp(standardKeyHeightDp), weight).apply {
-            setMargins(dp(2), dp(2), dp(2), dp(2))
+            setMargins(dp(1), dp(1), dp(1), dp(1))
         }
         button.layoutParams = params
 
@@ -411,7 +401,7 @@ class NyavoInputMethodService : InputMethodService() {
                     cursorModeActive = false
                     lastStepX = event.rawX
                     lastStepY = event.rawY
-                    view.animate().translationY(2f).setDuration(30L).start()
+                    view.isPressed = true
                     longPressHandler.postDelayed(longPressRunnable, longPressDelayMs)
                     true
                 }
@@ -426,7 +416,7 @@ class NyavoInputMethodService : InputMethodService() {
                 }
                 MotionEvent.ACTION_UP -> {
                     longPressHandler.removeCallbacks(longPressRunnable)
-                    view.animate().translationY(0f).setDuration(50L).start()
+                    view.isPressed = false
                     if (cursorModeActive) {
                         button.setBackgroundResource(R.drawable.key_bg_special)
                     } else {
@@ -439,7 +429,7 @@ class NyavoInputMethodService : InputMethodService() {
                 }
                 MotionEvent.ACTION_CANCEL -> {
                     longPressHandler.removeCallbacks(longPressRunnable)
-                    view.animate().translationY(0f).setDuration(50L).start()
+                    view.isPressed = false
                     button.setBackgroundResource(R.drawable.key_bg_special)
                     cursorModeActive = false
                     true
@@ -497,7 +487,7 @@ class NyavoInputMethodService : InputMethodService() {
         }
 
         val params = LinearLayout.LayoutParams(0, dp(standardKeyHeightDp), 1f).apply {
-            setMargins(dp(2), dp(2), dp(2), dp(2))
+            setMargins(dp(1), dp(1), dp(1), dp(1))
         }
         button.layoutParams = params
 
@@ -520,7 +510,7 @@ class NyavoInputMethodService : InputMethodService() {
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
                     longPressTriggered = false
-                    view.animate().translationY(2f).setDuration(30L).start()
+                    view.isPressed = true
                     view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
                     triggerGlowFlash(view)
                     showPreview(view, letter.uppercase())
@@ -534,7 +524,7 @@ class NyavoInputMethodService : InputMethodService() {
                 }
                 MotionEvent.ACTION_UP -> {
                     longPressHandler.removeCallbacks(longPressRunnable)
-                    view.animate().translationY(0f).setDuration(50L).start()
+                    view.isPressed = false
                     dismissPreview()
                     if (longPressTriggered) { commitHighlightedZone() }
                     longPressTriggered = false
@@ -542,7 +532,7 @@ class NyavoInputMethodService : InputMethodService() {
                 }
                 MotionEvent.ACTION_CANCEL -> {
                     longPressHandler.removeCallbacks(longPressRunnable)
-                    view.animate().translationY(0f).setDuration(50L).start()
+                    view.isPressed = false
                     dismissPreview()
                     if (longPressTriggered) { dismissPopup() }
                     longPressTriggered = false
@@ -567,7 +557,7 @@ class NyavoInputMethodService : InputMethodService() {
         val popupContainer = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             background = ContextCompat.getDrawable(this@NyavoInputMethodService, R.drawable.keyboard_card_bg)
-            setPadding(dp(4), dp(4), dp(4), dp(4))
+            setPadding(dp(2), dp(2), dp(2), dp(2))
         }
 
         val zoneButtons = mutableListOf<PopupZone>()
@@ -585,7 +575,7 @@ class NyavoInputMethodService : InputMethodService() {
                 setTextColor(ContextCompat.getColor(this@NyavoInputMethodService, R.color.key_text))
                 setBackgroundResource(if (index == 0) R.drawable.key_bg_shift else R.drawable.key_bg_special)
                 layoutParams = LinearLayout.LayoutParams(dp(48), dp(48)).apply {
-                    setMargins(dp(2), dp(2), dp(2), dp(2))
+                    setMargins(dp(1), dp(1), dp(1), dp(1))
                 }
             }
             popupContainer.addView(zoneBtn)
@@ -633,7 +623,6 @@ class NyavoInputMethodService : InputMethodService() {
     }
 
     private fun commitHighlightedZone() {
-        // CORRECTION : vérifier que l'index est strictement valide avant d'accéder à la liste
         if (currentZones.isNotEmpty() && currentHighlightIndex in currentZones.indices) {
             val zone = currentZones[currentHighlightIndex]
             currentInputConnection?.commitText(zone.value, 1)
@@ -646,7 +635,6 @@ class NyavoInputMethodService : InputMethodService() {
         currentPopup?.dismiss()
         currentPopup = null
         currentZones = emptyList()
-        // CORRECTION : réinitialiser l'index pour éviter tout état résiduel
         currentHighlightIndex = 0
     }
 
@@ -661,7 +649,6 @@ class NyavoInputMethodService : InputMethodService() {
         updateShiftButtonStyle()
     }
 
-    // CORRECTION : suppression de handleEditAction(0) qui appelait une action invalide
     private fun handleEmojiTap(emoji: String) {
         currentInputConnection?.commitText(emoji, 1)
     }
@@ -725,7 +712,14 @@ class NyavoInputMethodService : InputMethodService() {
         layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
     }
 
-    private fun makeKeyButton(label: String, weight: Float, heightDp: Int = standardKeyHeightDp, isSpecial: Boolean = false, textSizeSp: Float = normalTextSizeSp, onClick: () -> Unit): Button {
+    private fun makeKeyButton(
+        label: String,
+        weight: Float,
+        heightDp: Int = standardKeyHeightDp,
+        isSpecial: Boolean = false,
+        textSizeSp: Float = normalTextSizeSp,
+        onClick: () -> Unit
+    ): Button {
         val button = Button(this).apply {
             text = label
             isAllCaps = false
@@ -743,26 +737,17 @@ class NyavoInputMethodService : InputMethodService() {
         }
 
         val params = LinearLayout.LayoutParams(0, dp(heightDp), weight).apply {
-            setMargins(dp(2), dp(2), dp(2), dp(2))
+            setMargins(dp(1), dp(1), dp(1), dp(1))
         }
         button.layoutParams = params
+
         button.setOnClickListener {
             it.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
             triggerGlowFlash(it)
             onClick()
         }
-        attachSinkAnimation(button)
+        // Pas de OnTouchListener personnalisé : le framework gère isPressed nativement
         return button
-    }
-
-    private fun attachSinkAnimation(button: Button) {
-        button.setOnTouchListener { view, event ->
-            when (event.action) {
-                MotionEvent.ACTION_DOWN -> view.animate().translationY(2f).setDuration(30L).start()
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> view.animate().translationY(0f).setDuration(50L).start()
-            }
-            false
-        }
     }
 
     private fun makeSpacer(weight: Float) = View(this).apply {
