@@ -12,6 +12,7 @@ import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewAnimationUtils
+import android.view.WindowManager
 import android.view.animation.AccelerateDecelerateInterpolator
 import android.view.inputmethod.EditorInfo
 import android.widget.Button
@@ -70,9 +71,26 @@ class NyavoInputMethodService : InputMethodService() {
         floatAnimators.clear()
 
         val root = layoutInflater.inflate(R.layout.keyboard_view, null) as FrameLayout
-        
-        window?.window?.setGravity(Gravity.BOTTOM)
-        
+
+        // ========== VERROUILLAGE FENÊTRE EN BAS ==========
+        window?.window?.let { win ->
+            win.setGravity(Gravity.BOTTOM)
+            win.setSoftInputMode(
+                WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE or
+                WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE
+            )
+            win.addFlags(
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+            )
+            val lp = win.attributes
+            lp.gravity = Gravity.BOTTOM
+            lp.height = WindowManager.LayoutParams.WRAP_CONTENT
+            lp.width = WindowManager.LayoutParams.MATCH_PARENT
+            win.attributes = lp
+        }
+        // ===================================================
+
         val card = root.findViewById<LinearLayout>(R.id.keyboard_card)
         glowOverlay = root.findViewById(R.id.keyboard_glow_overlay)
         rootContainer = card
@@ -84,10 +102,12 @@ class NyavoInputMethodService : InputMethodService() {
 
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
-        
+
         window?.window?.let { win ->
             val lp = win.attributes
             lp.gravity = Gravity.BOTTOM
+            lp.height = WindowManager.LayoutParams.WRAP_CONTENT
+            lp.width = WindowManager.LayoutParams.MATCH_PARENT
             win.attributes = lp
         }
 
@@ -746,7 +766,6 @@ class NyavoInputMethodService : InputMethodService() {
             triggerGlowFlash(it)
             onClick()
         }
-        // Pas de OnTouchListener personnalisé : le framework gère isPressed nativement
         return button
     }
 
