@@ -6,13 +6,15 @@ import android.graphics.Typeface
 import android.inputmethodservice.InputMethodService
 import android.os.Handler
 import android.os.Looper
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewAnimationUtils
-import android.view.WindowManager
+import android.view.ViewGroup
 import android.view.animation.AccelerateDecelerateInterpolator
 import android.view.inputmethod.EditorInfo
 import android.widget.Button
@@ -21,8 +23,12 @@ import android.widget.LinearLayout
 import android.widget.PopupWindow
 import android.widget.TextView
 import androidx.core.content.ContextCompat
-import kotlin.math.abs
-import kotlin.math.hypot
+import java.security.KeyStore
+import java.util.Base64
+import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
+import javax.crypto.SecretKey
+import javax.crypto.spec.GCMParameterSpec
 
 class NyavoInputMethodService : InputMethodService() {
 
@@ -59,6 +65,14 @@ class NyavoInputMethodService : InputMethodService() {
 
     private val cursorStepThresholdPx get() = dp(24)
 
+    // ========== VAULT MODE ==========
+    private val vaultPrefs by lazy { getSharedPreferences("nyavo_vault", MODE_PRIVATE) }
+    private val vaultKeyAlias = "nyavo_vault_aes_key"
+    private var vaultPopup: PopupWindow? = null
+    private var addCredentialPopup: PopupWindow? = null
+    private val vaultLongPressMs = 3000L
+    // =================================
+
     override fun onEvaluateFullscreenMode(): Boolean = false
 
     override fun onCreate() {
@@ -72,25 +86,6 @@ class NyavoInputMethodService : InputMethodService() {
 
         val root = layoutInflater.inflate(R.layout.keyboard_view, null) as FrameLayout
 
-        // ========== VERROUILLAGE FENÊTRE EN BAS ==========
-        window?.window?.let { win ->
-            win.setGravity(Gravity.BOTTOM)
-            win.setSoftInputMode(
-                WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE or
-                WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE
-            )
-            win.addFlags(
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
-            )
-            val lp = win.attributes
-            lp.gravity = Gravity.BOTTOM
-            lp.height = WindowManager.LayoutParams.WRAP_CONTENT
-            lp.width = WindowManager.LayoutParams.MATCH_PARENT
-            win.attributes = lp
-        }
-        // ===================================================
-
         val card = root.findViewById<LinearLayout>(R.id.keyboard_card)
         glowOverlay = root.findViewById(R.id.keyboard_glow_overlay)
         rootContainer = card
@@ -103,13 +98,8 @@ class NyavoInputMethodService : InputMethodService() {
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
 
-        window?.window?.let { win ->
-            val lp = win.attributes
-            lp.gravity = Gravity.BOTTOM
-            lp.height = WindowManager.LayoutParams.WRAP_CONTENT
-            lp.width = WindowManager.LayoutParams.MATCH_PARENT
-            win.attributes = lp
-        }
+        window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        render() // Re-render pour détecter les champs password et afficher 🔐 si besoin
 
         floatAnimators.forEach { if (!it.isRunning) it.start() }
     }
@@ -119,6 +109,8 @@ class NyavoInputMethodService : InputMethodService() {
         floatAnimators.forEach { it.cancel() }
         dismissPopup()
         dismissPreview()
+        dismissVaultPopup()
+        dismissAddCredentialPopup()
         longPressHandler.removeCallbacksAndMessages(null)
     }
 
@@ -128,6 +120,8 @@ class NyavoInputMethodService : InputMethodService() {
         floatAnimators.clear()
         dismissPopup()
         dismissPreview()
+        dismissVaultPopup()
+        dismissAddCredentialPopup()
         longPressHandler.removeCallbacksAndMessages(null)
     }
 
@@ -268,23 +262,33 @@ class NyavoInputMethodService : InputMethodService() {
     private fun buildDevRow(): View {
         val row = horizontalRow()
 
-        row.addView(makeKeyButton("✂️", 0.9f, heightDp = 34, isSpecial = true) { 
+        // Raccourcis d'édition (Gauche) — Silence tactique
+        row.addView(makeKeyButton("✂️", 0.9f, heightDp = 34, isSpecial = true, hapticFeedback = -1) { 
             handleEditAction(android.R.id.cut) 
         })
-        row.addView(makeKeyButton("📋", 0.9f, heightDp = 34, isSpecial = true) { 
+        row.addView(makeKeyButton("📋", 0.9f, heightDp = 34, isSpecial = true, hapticFeedback = -1) { 
             handleEditAction(android.R.id.paste) 
         })
 
+        // Rangée de Symboles Rapides (Centre) — Silence tactile
         val devSymbols = listOf("{", "}", "[", "]", "(", ")", ";", "=")
         for (symbol in devSymbols) {
-            row.addView(makeKeyButton(symbol, 1.0f, heightDp = 34, isSpecial = false, textSizeSp = 16f) {
+            row.addView(makeKeyButton(symbol, 1.0f, heightDp = 34, isSpecial = false, textSizeSp = 16f, hapticFeedback = -1) {
                 handleDevSymbolTap(symbol)
             })
         }
 
-        row.addView(makeKeyButton("ALL", 1.1f, heightDp = 34, isSpecial = true, textSizeSp = 11f) { 
+        // Raccourci Tout Sélectionner (Droite) — Silence tactique
+        row.addView(makeKeyButton("ALL", 1.1f, heightDp = 34, isSpecial = true, textSizeSp = 11f, hapticFeedback = -1) { 
             handleEditAction(android.R.id.selectAll) 
         })
+
+        // BOUTON VAULT : visible uniquement dans un champ mot de passe
+        if (isPasswordField()) {
+            row.addView(makeKeyButton("🔐", 1.0f, heightDp = 34, isSpecial = true, hapticFeedback = HapticFeedbackConstants.CONFIRM) {
+                showVaultPopup()
+            })
+        }
 
         return row
     }
@@ -319,15 +323,34 @@ class NyavoInputMethodService : InputMethodService() {
     private fun buildThirdLetterRow(letters: List<String>): View {
         val row = horizontalRow()
 
-        val shift = makeKeyButton("⇧", 1.6f, isSpecial = true, textSizeSp = bigTextSizeSp) { handleShiftTap() }
+        // Shift avec Vault Mode (appui long 3s)
+        val shift = Button(this).apply {
+            text = "⇧"
+            isAllCaps = false
+            gravity = Gravity.CENTER
+            setPadding(0, 0, 0, 0)
+            minWidth = 0; minHeight = 0; minimumWidth = 0; minimumHeight = 0
+            includeFontPadding = false
+            stateListAnimator = null
+            elevation = 0f
+            typeface = sharedTypeface
+            setTextColor(ContextCompat.getColor(this@NyavoInputMethodService, R.color.key_text))
+            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, bigTextSizeSp)
+            setBackgroundResource(R.drawable.key_bg_special)
+            isHapticFeedbackEnabled = true
+            layoutParams = LinearLayout.LayoutParams(0, dp(standardKeyHeightDp), 1.6f).apply {
+                setMargins(dp(1), dp(1), dp(1), dp(1))
+            }
+        }
         shiftButton = shift
+        attachShiftBehavior(shift) // Tap = shift, Long-press 3s = Vault
         row.addView(shift)
 
         for (letter in letters) {
             row.addView(makeLetterButton(letter, null))
         }
 
-        row.addView(makeKeyButton("⌫", 1.6f, isSpecial = true, textSizeSp = bigTextSizeSp) { handleBackspace() })
+        row.addView(makeKeyButton("⌫", 1.6f, isSpecial = true, textSizeSp = bigTextSizeSp, hapticFeedback = HapticFeedbackConstants.REJECT) { handleBackspace() })
         return row
     }
 
@@ -336,7 +359,7 @@ class NyavoInputMethodService : InputMethodService() {
         row.addView(makeKeyButton("😊", 1.2f, isSpecial = true) { switchToEmojiMode() })
         row.addView(makeKeyButton(layoutAbbreviation(state.layoutType), 1.2f, isSpecial = true) { cycleLayout() })
         row.addView(makeSpaceButton(5f))
-        row.addView(makeKeyButton("↵", 1.8f, isSpecial = true, textSizeSp = bigTextSizeSp) { handleEnter() })
+        row.addView(makeKeyButton("↵", 1.8f, isSpecial = true, textSizeSp = bigTextSizeSp, hapticFeedback = HapticFeedbackConstants.CONFIRM) { handleEnter() })
         return row
     }
 
@@ -344,7 +367,7 @@ class NyavoInputMethodService : InputMethodService() {
         val row = horizontalRow()
         EmojiData.CATEGORIES.forEachIndexed { index, category ->
             val label = category.label.take(4)
-            row.addView(makeKeyButton(label, 1f, heightDp = 30, isSpecial = true) { selectEmojiCategory(index) })
+            row.addView(makeKeyButton(label, 1f, heightDp = 30, isSpecial = true, hapticFeedback = -1) { selectEmojiCategory(index) })
         }
         return row
     }
@@ -369,7 +392,7 @@ class NyavoInputMethodService : InputMethodService() {
     private fun buildEmojiBottomRow(): View {
         val row = horizontalRow()
         row.addView(makeKeyButton("ABC", 1.6f, isSpecial = true) { switchToLettersMode() })
-        row.addView(makeKeyButton("⌫", 1.6f, isSpecial = true, textSizeSp = bigTextSizeSp) { handleBackspace() })
+        row.addView(makeKeyButton("⌫", 1.6f, isSpecial = true, textSizeSp = bigTextSizeSp, hapticFeedback = HapticFeedbackConstants.REJECT) { handleBackspace() })
         row.addView(makeSpaceButton(5f))
         return row
     }
@@ -440,7 +463,7 @@ class NyavoInputMethodService : InputMethodService() {
                     if (cursorModeActive) {
                         button.setBackgroundResource(R.drawable.key_bg_special)
                     } else {
-                        view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                        view.performHapticFeedback(HapticFeedbackConstants.CONFIRM) // HAPTIC: CONFIRM pour espace
                         triggerGlowFlash(view)
                         handleSpace()
                     }
@@ -452,6 +475,44 @@ class NyavoInputMethodService : InputMethodService() {
                     view.isPressed = false
                     button.setBackgroundResource(R.drawable.key_bg_special)
                     cursorModeActive = false
+                    true
+                }
+                else -> false
+            }
+        }
+    }
+
+    private fun attachShiftBehavior(button: Button) {
+        var vaultTriggered = false
+        val vaultRunnable = Runnable {
+            vaultTriggered = true
+            button.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+            showVaultPopup()
+        }
+
+        button.setOnTouchListener { view, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    vaultTriggered = false
+                    view.isPressed = true
+                    longPressHandler.postDelayed(vaultRunnable, vaultLongPressMs)
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    longPressHandler.removeCallbacks(vaultRunnable)
+                    view.isPressed = false
+                    if (!vaultTriggered) {
+                        view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                        triggerGlowFlash(view)
+                        handleShiftTap()
+                    }
+                    vaultTriggered = false
+                    true
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    longPressHandler.removeCallbacks(vaultRunnable)
+                    view.isPressed = false
+                    vaultTriggered = false
                     true
                 }
                 else -> false
@@ -531,7 +592,7 @@ class NyavoInputMethodService : InputMethodService() {
                 MotionEvent.ACTION_DOWN -> {
                     longPressTriggered = false
                     view.isPressed = true
-                    view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK) // HAPTIC: TICK pour lettres
                     triggerGlowFlash(view)
                     showPreview(view, letter.uppercase())
                     handleLetterTap(letter)
@@ -719,6 +780,265 @@ class NyavoInputMethodService : InputMethodService() {
     }
 
     // ---------------------------------------------------------------
+    // VAULT MODE (Coffre-Fort Chiffré)
+    // ---------------------------------------------------------------
+
+    private fun isPasswordField(): Boolean {
+        val inputType = currentInputEditorInfo?.inputType ?: return false
+        val variation = inputType and EditorInfo.TYPE_MASK_VARIATION
+        return when (inputType and EditorInfo.TYPE_MASK_CLASS) {
+            EditorInfo.TYPE_CLASS_TEXT -> variation == EditorInfo.TYPE_TEXT_VARIATION_PASSWORD ||
+                    variation == EditorInfo.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD ||
+                    variation == EditorInfo.TYPE_TEXT_VARIATION_WEB_PASSWORD
+            EditorInfo.TYPE_CLASS_NUMBER -> variation == EditorInfo.TYPE_NUMBER_VARIATION_PASSWORD
+            else -> false
+        }
+    }
+
+    private fun getVaultKey(): SecretKey {
+        val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        if (!keyStore.containsAlias(vaultKeyAlias)) {
+            KeyGenerator.getInstance("AES", "AndroidKeyStore").apply {
+                init(KeyGenParameterSpec.Builder(vaultKeyAlias, KeyStore.Purpose.ENCRYPT or KeyStore.Purpose.DECRYPT)
+                    .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                    .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                    .build())
+                generateKey()
+            }
+        }
+        return (keyStore.getEntry(vaultKeyAlias, null) as KeyStore.SecretKeyEntry).secretKey
+    }
+
+    private fun encryptVault(plain: String): String {
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE, getVaultKey()) }
+        val iv = cipher.iv
+        val cipherText = cipher.doFinal(plain.toByteArray(Charsets.UTF_8))
+        return Base64.getEncoder().encodeToString(iv + cipherText)
+    }
+
+    private fun decryptVault(encrypted: String): String {
+        val bytes = Base64.getDecoder().decode(encrypted)
+        val iv = bytes.copyOfRange(0, 12)
+        val cipherText = bytes.copyOfRange(12, bytes.size)
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply {
+            init(Cipher.DECRYPT_MODE, getVaultKey(), GCMParameterSpec(128, iv))
+        }
+        return String(cipher.doFinal(cipherText), Charsets.UTF_8)
+    }
+
+    private fun showVaultPopup() {
+        dismissVaultPopup()
+        dismissAddCredentialPopup()
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(16), dp(16), dp(16))
+            background = ContextCompat.getDrawable(this@NyavoInputMethodService, R.drawable.keyboard_card_bg)
+        }
+
+        val title = TextView(this).apply {
+            text = "🔐 Vault Nyavo"
+            textSize = 20f
+            typeface = sharedTypeface
+            setTextColor(ContextCompat.getColor(this@NyavoInputMethodService, R.color.key_text))
+            setPadding(0, 0, 0, dp(12))
+        }
+        container.addView(title)
+
+        val scroll = android.widget.ScrollView(this)
+        val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+
+        val allEntries = vaultPrefs.all
+        var hasEntries = false
+        if (allEntries.isNotEmpty()) {
+            for ((alias, encrypted) in allEntries) {
+                if (encrypted !is String) continue
+                try {
+                    val password = decryptVault(encrypted)
+                    val btn = Button(this).apply {
+                        text = alias
+                        isAllCaps = false
+                        gravity = Gravity.CENTER
+                        setPadding(0, 0, 0, 0)
+                        minWidth = 0; minHeight = 0
+                        includeFontPadding = false
+                        stateListAnimator = null
+                        elevation = 0f
+                        typeface = sharedTypeface
+                        setTextColor(ContextCompat.getColor(this@NyavoInputMethodService, R.color.key_text))
+                        setBackgroundResource(R.drawable.key_bg_special)
+                        layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(48)).apply {
+                            setMargins(0, dp(4), 0, dp(4))
+                        }
+                        setOnClickListener {
+                            currentInputConnection?.commitText(password, 1)
+                            dismissVaultPopup()
+                        }
+                    }
+                    list.addView(btn)
+                    hasEntries = true
+                } catch (e: Exception) { }
+            }
+        }
+
+        if (!hasEntries) {
+            val emptyText = TextView(this).apply {
+                text = "Aucun secret. Appui long 3s sur ⇧ pour ajouter."
+                textSize = 14f
+                gravity = Gravity.CENTER
+                setPadding(dp(8), dp(16), dp(8), dp(16))
+                setTextColor(ContextCompat.getColor(this@NyavoInputMethodService, R.color.key_text))
+            }
+            list.addView(emptyText)
+        }
+
+        scroll.addView(list)
+        container.addView(scroll)
+
+        val addBtn = Button(this).apply {
+            text = "+ Ajouter un secret"
+            isAllCaps = false
+            gravity = Gravity.CENTER
+            setPadding(0, 0, 0, 0)
+            minWidth = 0; minHeight = 0
+            includeFontPadding = false
+            stateListAnimator = null
+            elevation = 0f
+            typeface = sharedTypeface
+            setTextColor(ContextCompat.getColor(this@NyavoInputMethodService, R.color.key_text))
+            setBackgroundResource(R.drawable.key_bg_shift)
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(42)).apply {
+                setMargins(0, dp(12), 0, 0)
+            }
+            setOnClickListener { showAddCredentialDialog() }
+        }
+        container.addView(addBtn)
+
+        container.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
+        val popup = PopupWindow(container, dp(300), LinearLayout.LayoutParams.WRAP_CONTENT, true).apply {
+            isOutsideTouchable = true
+            isTouchable = true
+            setBackgroundDrawable(null)
+        }
+
+        val root = rootContainer ?: return
+        popup.showAtLocation(root, Gravity.CENTER, 0, 0)
+        vaultPopup = popup
+    }
+
+    private fun dismissVaultPopup() {
+        vaultPopup?.dismiss()
+        vaultPopup = null
+    }
+
+    private fun showAddCredentialDialog() {
+        dismissVaultPopup()
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(16), dp(16), dp(16))
+            background = ContextCompat.getDrawable(this@NyavoInputMethodService, R.drawable.keyboard_card_bg)
+        }
+
+        val title = TextView(this).apply {
+            text = "Nouveau secret"
+            textSize = 18f
+            typeface = sharedTypeface
+            setTextColor(ContextCompat.getColor(this@NyavoInputMethodService, R.color.key_text))
+            setPadding(0, 0, 0, dp(12))
+        }
+        container.addView(title)
+
+        val inputAlias = android.widget.EditText(this).apply {
+            hint = "Nom (ex: GitHub)"
+            setTextColor(ContextCompat.getColor(this@NyavoInputMethodService, R.color.key_text))
+            setHintTextColor(ContextCompat.getColor(this@NyavoInputMethodService, R.color.key_text).and(0x80FFFFFF.toInt()))
+            background = ContextCompat.getDrawable(this@NyavoInputMethodService, R.drawable.key_bg_normal)
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+        }
+        container.addView(inputAlias)
+
+        val inputPass = android.widget.EditText(this).apply {
+            hint = "Mot de passe"
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+            setTextColor(ContextCompat.getColor(this@NyavoInputMethodService, R.color.key_text))
+            setHintTextColor(ContextCompat.getColor(this@NyavoInputMethodService, R.color.key_text).and(0x80FFFFFF.toInt()))
+            background = ContextCompat.getDrawable(this@NyavoInputMethodService, R.drawable.key_bg_normal)
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+        }
+        container.addView(inputPass)
+
+        val btnRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, dp(12), 0, 0)
+        }
+
+        val saveBtn = Button(this).apply {
+            text = "Sauver"
+            isAllCaps = false
+            gravity = Gravity.CENTER
+            setPadding(0, 0, 0, 0)
+            minWidth = 0; minHeight = 0
+            includeFontPadding = false
+            stateListAnimator = null
+            elevation = 0f
+            typeface = sharedTypeface
+            setTextColor(ContextCompat.getColor(this@NyavoInputMethodService, R.color.key_text))
+            setBackgroundResource(R.drawable.key_bg_shift)
+            layoutParams = LinearLayout.LayoutParams(0, dp(42), 1f).apply {
+                setMargins(0, 0, dp(4), 0)
+            }
+            setOnClickListener {
+                val alias = inputAlias.text.toString().trim()
+                val pass = inputPass.text.toString()
+                if (alias.isNotEmpty() && pass.isNotEmpty()) {
+                    vaultPrefs.edit().putString(alias, encryptVault(pass)).apply()
+                    dismissAddCredentialPopup()
+                    showVaultPopup()
+                }
+            }
+        }
+
+        val cancelBtn = Button(this).apply {
+            text = "Annuler"
+            isAllCaps = false
+            gravity = Gravity.CENTER
+            setPadding(0, 0, 0, 0)
+            minWidth = 0; minHeight = 0
+            includeFontPadding = false
+            stateListAnimator = null
+            elevation = 0f
+            typeface = sharedTypeface
+            setTextColor(ContextCompat.getColor(this@NyavoInputMethodService, R.color.key_text))
+            setBackgroundResource(R.drawable.key_bg_special)
+            layoutParams = LinearLayout.LayoutParams(0, dp(42), 1f).apply {
+                setMargins(dp(4), 0, 0, 0)
+            }
+            setOnClickListener { dismissAddCredentialPopup() }
+        }
+
+        btnRow.addView(saveBtn)
+        btnRow.addView(cancelBtn)
+        container.addView(btnRow)
+
+        container.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
+        val popup = PopupWindow(container, dp(300), LinearLayout.LayoutParams.WRAP_CONTENT, true).apply {
+            isOutsideTouchable = true
+            isTouchable = true
+            setBackgroundDrawable(null)
+        }
+
+        val root = rootContainer ?: return
+        popup.showAtLocation(root, Gravity.CENTER, 0, 0)
+        addCredentialPopup = popup
+    }
+
+    private fun dismissAddCredentialPopup() {
+        addCredentialPopup?.dismiss()
+        addCredentialPopup = null
+    }
+
+    // ---------------------------------------------------------------
     // Générateurs Dynamiques de Vues
     // ---------------------------------------------------------------
 
@@ -738,6 +1058,7 @@ class NyavoInputMethodService : InputMethodService() {
         heightDp: Int = standardKeyHeightDp,
         isSpecial: Boolean = false,
         textSizeSp: Float = normalTextSizeSp,
+        hapticFeedback: Int = HapticFeedbackConstants.KEYBOARD_TAP,
         onClick: () -> Unit
     ): Button {
         val button = Button(this).apply {
@@ -762,7 +1083,9 @@ class NyavoInputMethodService : InputMethodService() {
         button.layoutParams = params
 
         button.setOnClickListener {
-            it.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+            if (hapticFeedback != -1) {
+                it.performHapticFeedback(hapticFeedback)
+            }
             triggerGlowFlash(it)
             onClick()
         }
