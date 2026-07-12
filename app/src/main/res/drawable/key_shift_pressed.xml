@@ -13,4 +13,4 @@
     <path
         android:fillColor="@color/c_ring"
         android:pathData="M16,8L48,8L48,12L52,12L52,16L56,16L56,44L52,44L52,48L48,48L48,52L16,52L16,48L12,48L12,44L8,44L8,16L12,16L12,12L16,12Z" />
-</vector>
+</vector> 
