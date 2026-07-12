@@ -5,13 +5,17 @@ import android.animation.ValueAnimator
 import android.graphics.Typeface
 import android.inputmethodservice.InputMethodService
 import android.view.Gravity
+import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.view.animation.AccelerateDecelerateInterpolator
 import android.view.inputmethod.EditorInfo
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.PopupWindow
+import android.widget.TextView
 import androidx.core.content.ContextCompat
 
 class NyavoInputMethodService : InputMethodService() {
@@ -21,6 +25,9 @@ class NyavoInputMethodService : InputMethodService() {
     private var shiftButton: Button? = null
     private var currentEmojiCategoryIndex = 0
     private var floatAnimator: ObjectAnimator? = null
+
+    // Gère la pop-up active pour éviter les duplications
+    private var activePopupWindow: PopupWindow? = null
 
     // Hauteur standard d'une touche, calquée sur les proportions Gboard
     private val standardKeyHeightDp = 42
@@ -47,11 +54,13 @@ class NyavoInputMethodService : InputMethodService() {
     override fun onFinishInputView(finishingInput: Boolean) {
         super.onFinishInputView(finishingInput)
         floatAnimator?.cancel()
+        dismissActivePopup()
     }
 
     override fun onDestroy() {
         super.onDestroy()
         floatAnimator?.cancel()
+        dismissActivePopup()
     }
 
     // ---------------------------------------------------------------
@@ -226,20 +235,12 @@ class NyavoInputMethodService : InputMethodService() {
         updateShiftButtonStyle()
     }
 
-    /**
-     * Gère le double clic : vérifie s'il y a un chiffre associé,
-     * efface la lettre du premier clic, et écrit le chiffre à la place.
-     * @return true si l'action a été consommée (un chiffre a été écrit).
-     */
     private fun handleDoubleTapLetter(letter: String): Boolean {
         val number = getNumberForLetter(letter) ?: return false
         val ic = currentInputConnection ?: return false
         
-        // On supprime la lettre tapée par le premier clic
         ic.deleteSurroundingText(1, 0)
-        // On insère le chiffre correspondant
         ic.commitText(number, 1)
-        
         return true
     }
 
@@ -309,24 +310,14 @@ class NyavoInputMethodService : InputMethodService() {
         }
     }
 
-    // ---------------------------------------------------------------
-    // Logique d'attribution des chiffres (Dynamique selon le layout)
-    // ---------------------------------------------------------------
-
-    /**
-     * Attribue dynamiquement les chiffres de 1 à 0 à la première
-     * rangée de lettres, peu importe si on est en AZERTY, QWERTY, etc.
-     */
     private fun getNumberForLetter(letter: String): String? {
         val rows = KeyboardLayoutData.rowsFor(state.layoutType)
         val topRow = rows.firstOrNull() ?: return null
         
         val index = topRow.indexOf(letter.lowercase())
         if (index != -1 && index < 10) {
-            // Le 10ème élément (index 9) de la ligne du haut devient le chiffre "0"
             return if (index == 9) "0" else (index + 1).toString()
         }
-        // Retourne null pour les autres rangées (le double clic agira comme 2 clics simples)
         return null
     }
 
@@ -413,9 +404,8 @@ class NyavoInputMethodService : InputMethodService() {
         params.setMargins(dpF(2.5f), dpF(2.5f), dpF(2.5f), dpF(2.5f))
         button.layoutParams = params
 
-        // Gestion du Clic, Double Clic et Chronomètre
         var lastClickTime = 0L
-        val doubleClickTimeout = 300L // 300 ms pour déclencher le double clic
+        val doubleClickTimeout = 300L
 
         button.setOnClickListener {
             val currentTime = System.currentTimeMillis()
@@ -424,7 +414,7 @@ class NyavoInputMethodService : InputMethodService() {
             if (onDoubleClick != null && currentTime - lastClickTime < doubleClickTimeout) {
                 handledAsDouble = onDoubleClick()
                 if (handledAsDouble) {
-                    lastClickTime = 0L // Réinitialise pour éviter qu'un triple clic refasse un chiffre
+                    lastClickTime = 0L
                 }
             }
             
@@ -441,22 +431,82 @@ class NyavoInputMethodService : InputMethodService() {
             }
         }
         
-        attachSinkAnimation(button)
+        // On passe le label de la touche pour pouvoir l'afficher dans la pop-up
+        attachSinkAnimation(button, label, isSpecial)
         return button
     }
 
-    private fun attachSinkAnimation(button: Button) {
+    /**
+     * Gère l'enfoncement, le retour vibratoire (haptique) et la pop-up de prévisualisation.
+     */
+    private fun attachSinkAnimation(button: Button, label: String, isSpecial: Boolean) {
         button.setOnTouchListener { view, event ->
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
+                    // 1. Vibration instantanée standardisée pour les claviers
+                    view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+
+                    // 2. Animation d'enfoncement
                     view.animate().translationY(2f).setDuration(40L).start()
+
+                    // 3. Affichage de la pop-up visuelle (uniquement pour les vrais caractères/lettres)
+                    if (!isSpecial && label.isNotEmpty()) {
+                        showCharacterPopup(view, label)
+                    }
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    // 1. Retour à la position d'origine
                     view.animate().translationY(0f).setDuration(60L).start()
+
+                    // 2. Fermeture immédiate de la pop-up
+                    dismissActivePopup()
                 }
             }
-            false // On retourne false pour laisser le OnClickListener faire son travail !
+            false
         }
+    }
+
+    /**
+     * Crée et affiche une bulle de prévisualisation au-dessus de la touche pressée
+     */
+    private fun showCharacterPopup(anchorView: View, text: String) {
+        dismissActivePopup()
+
+        // Création dynamique de la vue de prévisualisation
+        val popupTextView = TextView(this).apply {
+            this.text = text
+            gravity = Gravity.CENTER
+            textSize = 24f
+            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+            setTextColor(ContextCompat.getColor(context, R.color.key_text))
+            // On réutilise le background des touches spéciales pour contraster proprement
+            setBackgroundResource(R.drawable.key_bg_special) 
+            setPadding(dp(12), dp(6), dp(12), dp(6))
+        }
+
+        val popup = PopupWindow(
+            popupTextView,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply {
+            isClippingEnabled = false // Permet de sortir légèrement des limites du clavier si besoin
+        }
+
+        activePopupWindow = popup
+
+        // Calcul de la position : pile au-dessus du bouton
+        anchorView.post {
+            if (anchorView.isShown) {
+                // Décalage vertical vers le haut : hauteur de la touche + marge de sécurité de 10dp
+                val yOffset = -(anchorView.height + dp(10))
+                popup.showAsDropDown(anchorView, (anchorView.width - dp(45)) / 2, yOffset, Gravity.NO_GRAVITY)
+            }
+        }
+    }
+
+    private fun dismissActivePopup() {
+        activePopupWindow?.dismiss()
+        activePopupWindow = null
     }
 
     private fun makeSpacer(weight: Float): View {
