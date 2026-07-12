@@ -6,7 +6,7 @@
     android:background="@android:color/transparent"
     android:clipChildren="false"
     android:clipToPadding="false"
-    android:padding="10dp">
+    android:padding="6dp">
 
     <LinearLayout
         android:id="@+id/keyboard_card"
@@ -14,6 +14,6 @@
         android:layout_height="wrap_content"
         android:orientation="vertical"
         android:background="@drawable/keyboard_card_bg"
-        android:padding="8dp" />
+        android:padding="5dp" />
 
 </FrameLayout>
