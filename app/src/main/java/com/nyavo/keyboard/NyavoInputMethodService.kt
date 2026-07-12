@@ -284,33 +284,46 @@ class NyavoInputMethodService : InputMethodService() {
      * cluster entier, pour ne pas interférer avec le tap normal sur
      * chaque flèche.
      */
-    private fun attachDragBehavior(handle: View, target: View) {
-        var startRawX = 0f
-        var startRawY = 0f
-        var startTranslationX = 0f
-        var startTranslationY = 0f
+ private fun attachDragBehavior(handle: View, target: View) {
+    var startRawX = 0f
+    var startRawY = 0f
+    var startTranslationX = 0f
+    var startTranslationY = 0f
+    var isDragging = false
+    val touchSlop = android.view.ViewConfiguration.get(this).scaledTouchSlop
 
-        handle.setOnTouchListener { _, event ->
-            when (event.action) {
-                MotionEvent.ACTION_DOWN -> {
-                    startRawX = event.rawX
-                    startRawY = event.rawY
-                    startTranslationX = target.translationX
-                    startTranslationY = target.translationY
-                    true
+    target.setOnTouchListener { _, event ->
+        when (event.action) {
+            MotionEvent.ACTION_DOWN -> {
+                startRawX = event.rawX
+                startRawY = event.rawY
+                startTranslationX = target.translationX
+                startTranslationY = target.translationY
+                isDragging = false
+                false  // false pour laisser passer le tap aux boutons
+            }
+            MotionEvent.ACTION_MOVE -> {
+                val dx = event.rawX - startRawX
+                val dy = event.rawY - startRawY
+                if (!isDragging && (Math.abs(dx) > touchSlop || Math.abs(dy) > touchSlop)) {
+                    isDragging = true
                 }
-                MotionEvent.ACTION_MOVE -> {
-                    val dx = event.rawX - startRawX
-                    val dy = event.rawY - startRawY
+                if (isDragging) {
                     target.translationX = startTranslationX + dx
                     target.translationY = startTranslationY + dy
                     true
+                } else {
+                    false
                 }
-                else -> true
             }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                isDragging = false
+                false
+            }
+            else -> false
         }
     }
-
+}
     private fun makeArrowButton(label: String, keyCode: Int): Button {
         val button = Button(this)
         button.text = label
