@@ -23,8 +23,6 @@ class NyavoInputMethodService : InputMethodService() {
     private var floatAnimator: ObjectAnimator? = null
 
     // Hauteur standard d'une touche, calquée sur les proportions Gboard
-    // (~42-44dp) plutôt que sur la version précédente (58dp), qui faisait
-    // occuper au clavier près de la moitié de l'écran.
     private val standardKeyHeightDp = 42
 
     override fun onCreate() {
@@ -122,7 +120,8 @@ class NyavoInputMethodService : InputMethodService() {
                     label = letter.uppercase(),
                     weight = 1f,
                     isSpecial = false,
-                    onLongClick = { handleLongPressSymbol(letter) }
+                    onLongClick = { handleLongPressSymbol(letter) },
+                    onDoubleClick = { handleDoubleTapLetter(letter) }
                 ) { handleLetterTap(letter) }
             )
         }
@@ -142,7 +141,8 @@ class NyavoInputMethodService : InputMethodService() {
                     label = letter.uppercase(),
                     weight = 1f,
                     isSpecial = false,
-                    onLongClick = { handleLongPressSymbol(letter) }
+                    onLongClick = { handleLongPressSymbol(letter) },
+                    onDoubleClick = { handleDoubleTapLetter(letter) }
                 ) { handleLetterTap(letter) }
             )
         }
@@ -226,6 +226,23 @@ class NyavoInputMethodService : InputMethodService() {
         updateShiftButtonStyle()
     }
 
+    /**
+     * Gère le double clic : vérifie s'il y a un chiffre associé,
+     * efface la lettre du premier clic, et écrit le chiffre à la place.
+     * @return true si l'action a été consommée (un chiffre a été écrit).
+     */
+    private fun handleDoubleTapLetter(letter: String): Boolean {
+        val number = getNumberForLetter(letter) ?: return false
+        val ic = currentInputConnection ?: return false
+        
+        // On supprime la lettre tapée par le premier clic
+        ic.deleteSurroundingText(1, 0)
+        // On insère le chiffre correspondant
+        ic.commitText(number, 1)
+        
+        return true
+    }
+
     private fun handleLongPressSymbol(letter: String) {
         val symbol = LongPressSymbols.symbolFor(letter) ?: return
         currentInputConnection?.commitText(symbol, 1)
@@ -293,6 +310,27 @@ class NyavoInputMethodService : InputMethodService() {
     }
 
     // ---------------------------------------------------------------
+    // Logique d'attribution des chiffres (Dynamique selon le layout)
+    // ---------------------------------------------------------------
+
+    /**
+     * Attribue dynamiquement les chiffres de 1 à 0 à la première
+     * rangée de lettres, peu importe si on est en AZERTY, QWERTY, etc.
+     */
+    private fun getNumberForLetter(letter: String): String? {
+        val rows = KeyboardLayoutData.rowsFor(state.layoutType)
+        val topRow = rows.firstOrNull() ?: return null
+        
+        val index = topRow.indexOf(letter.lowercase())
+        if (index != -1 && index < 10) {
+            // Le 10ème élément (index 9) de la ligne du haut devient le chiffre "0"
+            return if (index == 9) "0" else (index + 1).toString()
+        }
+        // Retourne null pour les autres rangées (le double clic agira comme 2 clics simples)
+        return null
+    }
+
+    // ---------------------------------------------------------------
     // Style
     // ---------------------------------------------------------------
 
@@ -350,6 +388,7 @@ class NyavoInputMethodService : InputMethodService() {
         heightDp: Int = standardKeyHeightDp,
         isSpecial: Boolean = false,
         onLongClick: (() -> Unit)? = null,
+        onDoubleClick: (() -> Boolean)? = null,
         onClick: () -> Unit
     ): Button {
         val button = Button(this)
@@ -370,30 +409,42 @@ class NyavoInputMethodService : InputMethodService() {
             if (isSpecial) R.drawable.key_bg_special else R.drawable.key_bg_normal
         )
 
-        // Marges resserrées (5dp -> 2.5dp) pour rapprocher l'espacement
-        // vertical/horizontal des proportions Gboard, sans coller les
-        // touches entre elles au point de nuire à la précision de frappe.
         val params = LinearLayout.LayoutParams(0, dp(heightDp), weight)
         params.setMargins(dpF(2.5f), dpF(2.5f), dpF(2.5f), dpF(2.5f))
         button.layoutParams = params
-        button.setOnClickListener { onClick() }
+
+        // Gestion du Clic, Double Clic et Chronomètre
+        var lastClickTime = 0L
+        val doubleClickTimeout = 300L // 300 ms pour déclencher le double clic
+
+        button.setOnClickListener {
+            val currentTime = System.currentTimeMillis()
+            var handledAsDouble = false
+            
+            if (onDoubleClick != null && currentTime - lastClickTime < doubleClickTimeout) {
+                handledAsDouble = onDoubleClick()
+                if (handledAsDouble) {
+                    lastClickTime = 0L // Réinitialise pour éviter qu'un triple clic refasse un chiffre
+                }
+            }
+            
+            if (!handledAsDouble) {
+                lastClickTime = currentTime
+                onClick()
+            }
+        }
+
         if (onLongClick != null) {
             button.setOnLongClickListener {
                 onLongClick()
                 true
             }
         }
+        
         attachSinkAnimation(button)
         return button
     }
 
-    /**
-     * Effet "enfoncement d'un pixel" : léger déplacement vertical au
-     * contact du doigt, retour immédiat au relâchement. Le changement de
-     * couleur (ombre/lumière) est géré automatiquement par le selector
-     * XML via l'état natif Android state_pressed. Transformation GPU
-     * pure, aucun recalcul de layout : coût négligeable, tient 60 FPS.
-     */
     private fun attachSinkAnimation(button: Button) {
         button.setOnTouchListener { view, event ->
             when (event.action) {
@@ -404,7 +455,7 @@ class NyavoInputMethodService : InputMethodService() {
                     view.animate().translationY(0f).setDuration(60L).start()
                 }
             }
-            false
+            false // On retourne false pour laisser le OnClickListener faire son travail !
         }
     }
 
