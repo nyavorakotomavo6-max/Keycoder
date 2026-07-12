@@ -184,6 +184,17 @@ class NyavoInputMethodService : InputMethodService() {
             setBackgroundColor(Color.parseColor("#FF1A1A1A"))
         }
 
+        // Déclarer le popup AVANT la boucle
+        val popup = PopupWindow(
+            popupContent,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            false
+        ).apply {
+            setBackgroundDrawable(null)
+            isOutsideTouchable = true
+        }
+        // Maintenant on peut utiliser popup dans les boutons
         symbols.forEach { symbol ->
             val btn = Button(this).apply {
                 text = symbol
@@ -194,7 +205,8 @@ class NyavoInputMethodService : InputMethodService() {
                     ViewGroup.LayoutParams.WRAP_CONTENT
                 ).apply {
                     marginStart = 4.dpToPx()
-                    marginEnd = 4.dpToPx()                }
+                    marginEnd = 4.dpToPx()
+                }
                 background = ContextCompat.getDrawable(this@NyavoInputMethodService, R.drawable.key_background)
                 setOnClickListener {
                     currentInputConnection?.commitText(symbol, 1)
@@ -202,16 +214,6 @@ class NyavoInputMethodService : InputMethodService() {
                 }
             }
             popupContent.addView(btn)
-        }
-
-        val popup = PopupWindow(
-            popupContent,
-            ViewGroup.LayoutParams.WRAP_CONTENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT,
-            false
-        ).apply {
-            setBackgroundDrawable(null)
-            isOutsideTouchable = true
         }
 
         popup.showAtLocation(anchorView, Gravity.NO_GRAVITY, x, y)
@@ -241,9 +243,9 @@ class NyavoInputMethodService : InputMethodService() {
                 lastTapTime = 0L
             } else {
                 // Programmer un single tap
-                val runnable = Runnable {
-                    onSingleTap()
-                    lastTapTime = 0L                }
+                val runnable = Runnable {                    onSingleTap()
+                    lastTapTime = 0L
+                }
                 pendingSingleTap = runnable
                 handler.postDelayed(runnable, DOUBLE_TAP_TIMEOUT)
                 lastTapTime = now
