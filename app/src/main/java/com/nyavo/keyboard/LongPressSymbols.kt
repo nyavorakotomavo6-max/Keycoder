@@ -2,119 +2,164 @@ package com.nyavo.keyboard
 
 object LongPressSymbols {
 
-    private val symbolsMap = mapOf(
 
-        // Lettres accentuées
-        "a" to listOf(
-            "à", "â", "ä", "æ", "á", "ã"
-        ),
+    // ==============================
+    // QWERTY
+    // ==============================
 
-        "e" to listOf(
-            "é", "è", "ê", "ë", "ē"
-        ),
+    private val qwertySymbols = mapOf(
 
-        "i" to listOf(
-            "î", "ï", "í", "ī"
-        ),
+        "q" to listOf("1", "@", "#", "_"),
+        "w" to listOf("2", "!", "&", "~"),
+        "e" to listOf("3", "=", "+", "€"),
+        "r" to listOf("4", "{", "}", "["),
+        "t" to listOf("5", "(", ")", "]"),
+        "y" to listOf("6", "<", ">", "≤"),
+        "u" to listOf("7", "-", "_", "→"),
+        "i" to listOf("8", "*", "/", "|"),
+        "o" to listOf("9", ":", ";", "°"),
+        "p" to listOf("0", "%", "^", "π"),
 
-        "o" to listOf(
-            "ô", "ö", "ò", "ó", "œ", "õ"
-        ),
+        "a" to listOf("@", "#", "$", "&"),
+        "s" to listOf("=", "+", "-", "~"),
+        "d" to listOf("{", "}", "[", "]"),
+        "f" to listOf("(", ")", "<", ">"),
+        "g" to listOf("/", "\\", "|", "*"),
+        "h" to listOf(":", ";", "'", "\""),
+        "j" to listOf("!", "?", "¿", "¡"),
+        "k" to listOf("%", "°", "‰"),
+        "l" to listOf("$", "€", "£"),
 
-        "u" to listOf(
-            "ù", "û", "ü", "ú", "ū"
-        ),
-
-        "c" to listOf(
-            "ç", "ć"
-        ),
-
-        "n" to listOf(
-            "ñ", "ń"
-        ),
-
-
-        // Symboles
-        "." to listOf(
-            "…",
-            "!",
-            "?",
-            ":",
-            ";"
-        ),
-
-        "," to listOf(
-            "،",
-            "‚",
-            "«",
-            "»"
-        ),
-
-        "?" to listOf(
-            "¿",
-            "⁇",
-            "⁈"
-        ),
-
-        "!" to listOf(
-            "¡",
-            "‼"
-        ),
-
-        "-" to listOf(
-            "_",
-            "–",
-            "—"
-        ),
-
-        "@" to listOf(
-            "#",
-            "$",
-            "%",
-            "&"
-        )
+        "z" to listOf("1", "2", "3"),
+        "x" to listOf("4", "5", "6"),
+        "c" to listOf("7", "8", "9"),
+        "v" to listOf("0", "+", "-"),
+        "b" to listOf("=", "==", "!="),
+        "n" to listOf("//", "/*", "*/"),
+        "m" to listOf("_", "$", "#")
     )
 
 
-    /**
-     * Ancienne fonction conservée
-     * pour éviter les erreurs de compilation
-     */
+
+    // ==============================
+    // AZERTY
+    // ==============================
+
+    private val azertySymbols = mapOf(
+
+        "a" to listOf("1", "@", "#", "_"),
+        "z" to listOf("2", "!", "&", "~"),
+        "e" to listOf("3", "=", "+", "€"),
+        "r" to listOf("4", "{", "}", "["),
+        "t" to listOf("5", "(", ")", "]"),
+        "y" to listOf("6", "<", ">", "≤"),
+        "u" to listOf("7", "-", "_", "→"),
+        "i" to listOf("8", "*", "/", "|"),
+        "o" to listOf("9", ":", ";", "°"),
+        "p" to listOf("0", "%", "^", "π"),
+
+        "q" to listOf("@", "#", "$", "&"),
+        "s" to listOf("=", "+", "-", "~"),
+        "d" to listOf("{", "}", "[", "]"),
+        "f" to listOf("(", ")", "<", ">"),
+        "g" to listOf("/", "\\", "|", "*"),
+        "h" to listOf(":", ";", "'", "\""),
+        "j" to listOf("!", "?", "¿", "¡"),
+        "k" to listOf("%", "°", "‰"),
+        "l" to listOf("$", "€", "£"),
+        "m" to listOf("_", "$", "#"),
+
+        "w" to listOf("1", "2", "3"),
+        "x" to listOf("4", "5", "6"),
+        "c" to listOf("7", "8", "9"),
+        "v" to listOf("0", "+", "-"),
+        "b" to listOf("=", "==", "!="),
+        "n" to listOf("//", "/*", "*/")
+    )
+
+
+
+    // ==============================
+    // QWERTZ
+    // ==============================
+
+    private val qwertzSymbols = mapOf(
+
+        "q" to listOf("1", "@", "#", "_"),
+        "w" to listOf("2", "!", "&", "~"),
+        "e" to listOf("3", "=", "+", "€"),
+        "r" to listOf("4", "{", "}", "["),
+        "t" to listOf("5", "(", ")", "]"),
+        "z" to listOf("6", "<", ">", "≤"),
+        "u" to listOf("7", "-", "_", "→"),
+        "i" to listOf("8", "*", "/", "|"),
+        "o" to listOf("9", ":", ";", "°"),
+        "p" to listOf("0", "%", "^", "π"),
+
+        "a" to listOf("@", "#", "$", "&"),
+        "s" to listOf("=", "+", "-", "~"),
+        "d" to listOf("{", "}", "[", "]"),
+        "f" to listOf("(", ")", "<", ">"),
+        "g" to listOf("/", "\\", "|", "*"),
+        "h" to listOf(":", ";", "'", "\""),
+        "j" to listOf("!", "?", "¿", "¡"),
+        "k" to listOf("%", "°", "‰"),
+        "l" to listOf("$", "€", "£"),
+
+        "y" to listOf("1", "2", "3"),
+        "x" to listOf("4", "5", "6"),
+        "c" to listOf("7", "8", "9"),
+        "v" to listOf("0", "+", "-"),
+        "b" to listOf("=", "==", "!="),
+        "n" to listOf("//", "/*", "*/"),
+        "m" to listOf("_", "$", "#")
+    )
+
+
+
+    // ==============================
+    // Fonctions publiques
+    // ==============================
+
+
+    fun symbolsFor(
+        key: String,
+        layout: KeyboardLayoutType
+    ): List<String> {
+
+        return when(layout) {
+
+            KeyboardLayoutType.QWERTY ->
+                qwertySymbols[key]
+
+            KeyboardLayoutType.AZERTY ->
+                azertySymbols[key]
+
+            KeyboardLayoutType.QWERTZ ->
+                qwertzSymbols[key]
+        } ?: emptyList()
+    }
+
+
+
+    // Ancienne fonction gardée
+    // pour éviter les erreurs ailleurs
+
     fun symbolFor(
         key: String
     ): String? {
 
-        return symbolsMap[key]
+        return qwertySymbols[key]
             ?.firstOrNull()
-
     }
 
 
 
-    /**
-     * Nouvelle fonction pour le popup
-     */
-    fun symbolsFor(
-        key: String
-    ): List<String> {
-
-        return symbolsMap[key]
-            ?: emptyList()
-
-    }
-
-
-
-    /**
-     * Vérifie si une touche possède
-     * plusieurs caractères alternatifs
-     */
     fun hasAlternatives(
-        key: String
+        key: String,
+        layout: KeyboardLayoutType
     ): Boolean {
 
-        return symbolsMap[key]
-            ?.size ?: 0 > 1
-
+        return symbolsFor(key, layout).size > 1
     }
 }
