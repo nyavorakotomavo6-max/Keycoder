@@ -1,8 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/keyboard_root"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:background="@color/pixel_bg"
-    android:orientation="vertical"
-    android:padding="4dp" />
+    android:background="@android:color/transparent"
+    android:clipChildren="false"
+    android:clipToPadding="false"
+    android:padding="14dp">
+
+    <View
+        android:id="@+id/keyboard_shadow"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_marginStart="6dp"
+        android:layout_marginTop="6dp"
+        android:background="@color/kb_shadow_offset" />
+
+    <LinearLayout
+        android:id="@+id/keyboard_card"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginEnd="6dp"
+        android:layout_marginBottom="6dp"
+        android:orientation="vertical"
+        android:background="@drawable/keyboard_card_bg"
+        android:padding="6dp" />
+
+</FrameLayout>
