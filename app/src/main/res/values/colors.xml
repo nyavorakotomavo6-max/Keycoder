@@ -3,26 +3,24 @@
     <color name="ic_launcher_background">#1B1B1B</color>
     <color name="ic_launcher_foreground">#FFFFFF</color>
 
-    <color name="card_border">#3A2E6B</color>
-    <color name="card_shadow_tone">#1C1730</color>
-    <color name="card_fill">#120D24</color>
+    <color name="card_bg">#0D0B14</color>
+    <color name="card_border">#201E2A</color>
 
-    <color name="key_border">#0D0619</color>
-    <color name="key_shadow_tone">#241C42</color>
-    <color name="key_fill">#3D3466</color>
-    <color name="key_text">#F5F3FF</color>
+    <color name="n_border">#0A0A12</color>
+    <color name="n_ring">#24222E</color>
+    <color name="n_fill">#4A4858</color>
+    <color name="n_fill_special">#3A3846</color>
+    <color name="n_highlight">#7A7890</color>
 
-    <color name="special_border">#0D0619</color>
-    <color name="special_shadow_tone">#241C42</color>
-    <color name="special_fill">#4A4470</color>
+    <color name="c_border">#062E30</color>
+    <color name="c_ring">#0B5457</color>
+    <color name="c_fill">#29C5CC</color>
+    <color name="c_highlight">#8BEFF3</color>
 
-    <color name="shift_border">#063B3D</color>
-    <color name="shift_shadow_tone">#0F7A80</color>
-    <color name="shift_fill">#00E5FF</color>
+    <color name="g_border">#123018</color>
+    <color name="g_ring">#1F5A2A</color>
+    <color name="g_fill">#4CD964</color>
+    <color name="g_highlight">#A6FFB8</color>
 
-    <color name="capslock_border">#123B12</color>
-    <color name="capslock_shadow_tone">#1E7A1E</color>
-    <color name="capslock_fill">#39FF14</color>
-
-    <color name="kb_shadow_offset">#CC0A0518</color>
+    <color name="key_text">#FFFFFF</color>
 </resources>
