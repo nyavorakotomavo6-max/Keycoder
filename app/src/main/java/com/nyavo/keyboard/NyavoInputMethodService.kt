@@ -438,7 +438,6 @@ class NyavoInputMethodService : InputMethodService() {
 
     /**
      * Gère l'enfoncement, le retour vibratoire (haptique) et la pop-up de prévisualisation.
-     * Amélioré pour empêcher la pop-up de rester coincée si le doigt glisse.
      */
     private fun attachSinkAnimation(button: Button, label: String, isSpecial: Boolean) {
         button.setOnTouchListener { view, event ->
@@ -450,14 +449,14 @@ class NyavoInputMethodService : InputMethodService() {
                     // 2. Animation d'enfoncement
                     view.animate().translationY(2f).setDuration(40L).start()
 
-                    // 3. Affichage de la pop-up
+                    // 3. Affichage de la pop-up (synchrone maintenant)
                     if (!isSpecial && label.isNotEmpty()) {
                         showCharacterPopup(view, label)
                     }
                 }
                 
                 MotionEvent.ACTION_MOVE -> {
-                    // Si le doigt glisse en dehors de la touche physique, on annule tout !
+                    // Annulation si le doigt glisse hors de la touche
                     val rect = Rect(0, 0, view.width, view.height)
                     if (!rect.contains(event.x.toInt(), event.y.toInt())) {
                         view.animate().translationY(0f).setDuration(60L).start()
@@ -466,7 +465,7 @@ class NyavoInputMethodService : InputMethodService() {
                 }
 
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    // Retour à la position normale et fermeture de la pop-up
+                    // Retour à la normale
                     view.animate().translationY(0f).setDuration(60L).start()
                     dismissActivePopup()
                 }
@@ -477,6 +476,7 @@ class NyavoInputMethodService : InputMethodService() {
 
     /**
      * Crée et affiche une bulle de prévisualisation au-dessus de la touche pressée
+     * Corrigé : affichage synchrone et protection contre le vol de clic (isTouchable = false)
      */
     private fun showCharacterPopup(anchorView: View, text: String) {
         dismissActivePopup()
@@ -491,22 +491,27 @@ class NyavoInputMethodService : InputMethodService() {
             setPadding(dp(12), dp(6), dp(12), dp(6))
         }
 
+        // On force la mesure pour pouvoir centrer la pop-up parfaitement
+        popupTextView.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
+        val popupWidth = popupTextView.measuredWidth
+
         val popup = PopupWindow(
             popupTextView,
             ViewGroup.LayoutParams.WRAP_CONTENT,
             ViewGroup.LayoutParams.WRAP_CONTENT
         ).apply {
             isClippingEnabled = false
+            isTouchable = false // CRUCIAL : Empêche la pop-up de voler les clics du clavier
+            isFocusable = false // CRUCIAL : Empêche la pop-up de prendre le focus de l'écran
         }
 
         activePopupWindow = popup
 
-        anchorView.post {
-            if (anchorView.isShown) {
-                val yOffset = -(anchorView.height + dp(10))
-                popup.showAsDropDown(anchorView, (anchorView.width - dp(45)) / 2, yOffset, Gravity.NO_GRAVITY)
-            }
-        }
+        // L'affichage est maintenant immédiat (on a retiré le anchorView.post {})
+        val xOffset = (anchorView.width - popupWidth) / 2
+        val yOffset = -(anchorView.height + dp(10))
+        
+        popup.showAsDropDown(anchorView, xOffset, yOffset, Gravity.NO_GRAVITY)
     }
 
     private fun dismissActivePopup() {
