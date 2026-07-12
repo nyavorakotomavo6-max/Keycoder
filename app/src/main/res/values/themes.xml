@@ -1,5 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Thème de l'activité Settings (inchangé) -->
     <style name="Theme.NyavoKeyboard" parent="Theme.AppCompat.DayNight">
     </style>
+
+    <!-- Thème CRITIQUE pour le clavier : fenêtre flottante, transparente, sans titre -->
+    <style name="Theme.NyavoKeyboard.Ime" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowIsFloating">true</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:windowAnimationStyle">@null</item>
+        <item name="android:windowContentOverlay">@null</item>
+    </style>
+
 </resources>
