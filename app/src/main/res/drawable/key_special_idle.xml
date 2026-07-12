@@ -16,4 +16,4 @@
     <path
         android:fillColor="@color/n_highlight"
         android:pathData="M14,11L50,11L50,15L14,15Z" />
-</vector>
+</vector> 
