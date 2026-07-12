@@ -1,45 +1,120 @@
 package com.nyavo.keyboard
 
-/**
- * Mapping appui-long : chaque lettre donne accès à un symbole utile pour
- * le développement (accolades, ponctuation de code, opérateurs) sans
- * avoir à changer de mode. Le mapping est basé sur la lettre elle-même,
- * pas sur sa position, donc il reste identique quel que soit le layout
- * actif (AZERTY / QWERTY / QWERTZ).
- */
 object LongPressSymbols {
 
-    private val MAPPING = mapOf(
-        'a' to "@",
-        'b' to "'",
-        'c' to ":",
-        'd' to "$",
-        'e' to "=",
-        'f' to "{",
-        'g' to "}",
-        'h' to "(",
-        'i' to "/",
-        'j' to ")",
-        'k' to "[",
-        'l' to "]",
-        'm' to "?",
-        'n' to "!",
-        'o' to "\\",
-        'p' to "|",
-        'q' to "~",
-        'r' to "+",
-        's' to ";",
-        't' to "-",
-        'u' to "*",
-        'v' to "\"",
-        'w' to "`",
-        'x' to ">",
-        'y' to "_",
-        'z' to "<"
+    private val symbolsMap = mapOf(
+
+        // Lettres accentuées
+        "a" to listOf(
+            "à", "â", "ä", "æ", "á", "ã"
+        ),
+
+        "e" to listOf(
+            "é", "è", "ê", "ë", "ē"
+        ),
+
+        "i" to listOf(
+            "î", "ï", "í", "ī"
+        ),
+
+        "o" to listOf(
+            "ô", "ö", "ò", "ó", "œ", "õ"
+        ),
+
+        "u" to listOf(
+            "ù", "û", "ü", "ú", "ū"
+        ),
+
+        "c" to listOf(
+            "ç", "ć"
+        ),
+
+        "n" to listOf(
+            "ñ", "ń"
+        ),
+
+
+        // Symboles
+        "." to listOf(
+            "…",
+            "!",
+            "?",
+            ":",
+            ";"
+        ),
+
+        "," to listOf(
+            "،",
+            "‚",
+            "«",
+            "»"
+        ),
+
+        "?" to listOf(
+            "¿",
+            "⁇",
+            "⁈"
+        ),
+
+        "!" to listOf(
+            "¡",
+            "‼"
+        ),
+
+        "-" to listOf(
+            "_",
+            "–",
+            "—"
+        ),
+
+        "@" to listOf(
+            "#",
+            "$",
+            "%",
+            "&"
+        )
     )
 
-    fun symbolFor(letter: String): String? {
-        if (letter.isEmpty()) return null
-        return MAPPING[letter.lowercase()[0]]
+
+    /**
+     * Ancienne fonction conservée
+     * pour éviter les erreurs de compilation
+     */
+    fun symbolFor(
+        key: String
+    ): String? {
+
+        return symbolsMap[key]
+            ?.firstOrNull()
+
+    }
+
+
+
+    /**
+     * Nouvelle fonction pour le popup
+     */
+    fun symbolsFor(
+        key: String
+    ): List<String> {
+
+        return symbolsMap[key]
+            ?: emptyList()
+
+    }
+
+
+
+    /**
+     * Vérifie si une touche possède
+     * plusieurs caractères alternatifs
+     */
+    fun hasAlternatives(
+        key: String
+    ): Boolean {
+
+        return symbolsMap[key]
+            ?.size ?: 0 > 1
+
     }
 }
