@@ -1,11 +1,15 @@
 package com.nyavo.keyboard
 
+import android.animation.ObjectAnimator
+import android.animation.ValueAnimator
 import android.graphics.Typeface
 import android.inputmethodservice.InputMethodService
 import android.view.Gravity
 import android.view.View
+import android.view.animation.AccelerateDecelerateInterpolator
 import android.view.inputmethod.EditorInfo
 import android.widget.Button
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import androidx.core.content.ContextCompat
 
@@ -15,6 +19,7 @@ class NyavoInputMethodService : InputMethodService() {
     private var rootContainer: LinearLayout? = null
     private var shiftButton: Button? = null
     private var currentEmojiCategoryIndex = 0
+    private var floatAnimator: ObjectAnimator? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -22,10 +27,41 @@ class NyavoInputMethodService : InputMethodService() {
     }
 
     override fun onCreateInputView(): View {
-        val root = layoutInflater.inflate(R.layout.keyboard_view, null) as LinearLayout
-        rootContainer = root
+        val root = layoutInflater.inflate(R.layout.keyboard_view, null) as FrameLayout
+        val card = root.findViewById<LinearLayout>(R.id.keyboard_card)
+        rootContainer = card
         render()
+        startFloatingAnimation(card)
         return root
+    }
+
+    override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
+        super.onStartInputView(info, restarting)
+        floatAnimator?.let { if (!it.isRunning) it.start() }
+    }
+
+    override fun onFinishInputView(finishingInput: Boolean) {
+        super.onFinishInputView(finishingInput)
+        floatAnimator?.cancel()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        floatAnimator?.cancel()
+    }
+
+    // ---------------------------------------------------------------
+    // Animation de lévitation
+    // ---------------------------------------------------------------
+
+    private fun startFloatingAnimation(target: View) {
+        floatAnimator?.cancel()
+        floatAnimator = ObjectAnimator.ofFloat(target, "translationY", 0f, -6f, 0f).apply {
+            duration = 1800L
+            repeatCount = ValueAnimator.INFINITE
+            interpolator = AccelerateDecelerateInterpolator()
+        }
+        floatAnimator?.start()
     }
 
     // ---------------------------------------------------------------
@@ -335,7 +371,7 @@ class NyavoInputMethodService : InputMethodService() {
         button.stateListAnimator = null
         button.elevation = 0f
         button.typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
-        button.setTextColor(ContextCompat.getColor(this, R.color.pixel_key_text))
+        button.setTextColor(ContextCompat.getColor(this, R.color.key_text))
         button.setBackgroundResource(
             if (isSpecial) R.drawable.key_bg_special else R.drawable.key_bg_normal
         )
