@@ -17,6 +17,7 @@ import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.PopupWindow
+import android.widget.TextView
 import androidx.core.content.ContextCompat
 
 class NyavoInputMethodService : InputMethodService() {
@@ -30,6 +31,12 @@ class NyavoInputMethodService : InputMethodService() {
     private val floatAnimators = mutableListOf<ObjectAnimator>()
 
     private val topRowDigits = listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0")
+
+    // Tailles de texte : agrandies pour les touches à fort impact
+    // ergonomique (Entrée, Suppr, Shift, flèches) comme demandé, tout en
+    // gardant les lettres normales lisibles sans déséquilibrer le clavier.
+    private val normalTextSizeSp = 18f
+    private val bigTextSizeSp = 26f
 
     // --- Popup symbole/chiffre à appui long ---
     private data class PopupZone(val view: Button, val value: String)
@@ -156,7 +163,9 @@ class NyavoInputMethodService : InputMethodService() {
     private fun buildThirdLetterRow(letters: List<String>): View {
         val row = horizontalRow()
 
-        val shift = makeKeyButton("⇧", 1.6f, isSpecial = true) { handleShiftTap() }
+        val shift = makeKeyButton(
+            "⇧", 1.6f, isSpecial = true, textSizeSp = bigTextSizeSp
+        ) { handleShiftTap() }
         shiftButton = shift
         row.addView(shift)
 
@@ -164,7 +173,9 @@ class NyavoInputMethodService : InputMethodService() {
             row.addView(makeLetterButton(letter, null))
         }
 
-        row.addView(makeKeyButton("⌫", 1.6f, isSpecial = true) { handleBackspace() })
+        row.addView(
+            makeKeyButton("⌫", 1.6f, isSpecial = true, textSizeSp = bigTextSizeSp) { handleBackspace() }
+        )
         return row
     }
 
@@ -175,7 +186,9 @@ class NyavoInputMethodService : InputMethodService() {
             makeKeyButton(layoutAbbreviation(state.layoutType), 1.2f, isSpecial = true) { cycleLayout() }
         )
         row.addView(makeKeyButton("espace", 5f, isSpecial = true) { handleSpace() })
-        row.addView(makeKeyButton("↵", 1.8f, isSpecial = true) { handleEnter() })
+        row.addView(
+            makeKeyButton("↵", 1.8f, isSpecial = true, textSizeSp = bigTextSizeSp) { handleEnter() }
+        )
         return row
     }
 
@@ -219,21 +232,36 @@ class NyavoInputMethodService : InputMethodService() {
     private fun buildEmojiBottomRow(): View {
         val row = horizontalRow()
         row.addView(makeKeyButton("ABC", 1.6f, isSpecial = true) { switchToLettersMode() })
-        row.addView(makeKeyButton("⌫", 1.6f, isSpecial = true) { handleBackspace() })
+        row.addView(
+            makeKeyButton("⌫", 1.6f, isSpecial = true, textSizeSp = bigTextSizeSp) { handleBackspace() }
+        )
         row.addView(makeKeyButton("espace", 5f, isSpecial = true) { handleSpace() })
         return row
     }
 
     // ---------------------------------------------------------------
-    // Flèches directionnelles (cluster séparé)
+    // Flèches directionnelles — cluster mobile, sans fond
     // ---------------------------------------------------------------
 
     private fun buildArrowCluster(): LinearLayout {
         val cluster = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = ContextCompat.getDrawable(this@NyavoInputMethodService, R.drawable.keyboard_card_bg)
-            setPadding(dp(4), dp(4), dp(4), dp(4))
+            setPadding(dp(2), dp(2), dp(2), dp(2))
         }
+
+        val handle = TextView(this).apply {
+            text = "⠿"
+            setTextColor(ContextCompat.getColor(this@NyavoInputMethodService, R.color.key_text))
+            textSize = 14f
+            gravity = Gravity.CENTER
+            alpha = 0.6f
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(20)
+            )
+        }
+        attachDragBehavior(handle, cluster)
+        cluster.addView(handle)
 
         val topRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         topRow.addView(makeArrowSpacer())
@@ -248,6 +276,39 @@ class NyavoInputMethodService : InputMethodService() {
         cluster.addView(topRow)
         cluster.addView(bottomRow)
         return cluster
+    }
+
+    /**
+     * Permet de faire glisser tout le cluster de flèches via sa poignée
+     * dédiée (⠿). On isole le glissé sur cette poignée, plutôt que sur le
+     * cluster entier, pour ne pas interférer avec le tap normal sur
+     * chaque flèche.
+     */
+    private fun attachDragBehavior(handle: View, target: View) {
+        var startRawX = 0f
+        var startRawY = 0f
+        var startTranslationX = 0f
+        var startTranslationY = 0f
+
+        handle.setOnTouchListener { _, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    startRawX = event.rawX
+                    startRawY = event.rawY
+                    startTranslationX = target.translationX
+                    startTranslationY = target.translationY
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = event.rawX - startRawX
+                    val dy = event.rawY - startRawY
+                    target.translationX = startTranslationX + dx
+                    target.translationY = startTranslationY + dy
+                    true
+                }
+                else -> true
+            }
+        }
     }
 
     private fun makeArrowButton(label: String, keyCode: Int): Button {
@@ -265,9 +326,11 @@ class NyavoInputMethodService : InputMethodService() {
         button.elevation = 0f
         button.typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
         button.setTextColor(ContextCompat.getColor(this, R.color.key_text))
-        button.setBackgroundResource(R.drawable.key_bg_special)
+        button.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, bigTextSizeSp)
+        // Pas de fond : uniquement le symbole flottant, comme demandé.
+        button.setBackgroundColor(android.graphics.Color.TRANSPARENT)
         button.isHapticFeedbackEnabled = true
-        button.layoutParams = LinearLayout.LayoutParams(dp(34), dp(34)).apply {
+        button.layoutParams = LinearLayout.LayoutParams(dp(44), dp(44)).apply {
             setMargins(dp(2), dp(2), dp(2), dp(2))
         }
         button.setOnClickListener {
@@ -280,7 +343,7 @@ class NyavoInputMethodService : InputMethodService() {
 
     private fun makeArrowSpacer(): View {
         return View(this).apply {
-            layoutParams = LinearLayout.LayoutParams(dp(34), dp(34)).apply {
+            layoutParams = LinearLayout.LayoutParams(dp(44), dp(44)).apply {
                 setMargins(dp(2), dp(2), dp(2), dp(2))
             }
         }
@@ -312,6 +375,7 @@ class NyavoInputMethodService : InputMethodService() {
         button.elevation = 0f
         button.typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
         button.setTextColor(ContextCompat.getColor(this, R.color.key_text))
+        button.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, normalTextSizeSp)
         button.setBackgroundResource(R.drawable.key_bg_normal)
         button.isHapticFeedbackEnabled = true
 
@@ -599,6 +663,7 @@ class NyavoInputMethodService : InputMethodService() {
         weight: Float,
         heightDp: Int = standardKeyHeightDp,
         isSpecial: Boolean = false,
+        textSizeSp: Float = normalTextSizeSp,
         onClick: () -> Unit
     ): Button {
         val button = Button(this)
@@ -615,6 +680,7 @@ class NyavoInputMethodService : InputMethodService() {
         button.elevation = 0f
         button.typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
         button.setTextColor(ContextCompat.getColor(this, R.color.key_text))
+        button.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, textSizeSp)
         button.setBackgroundResource(
             if (isSpecial) R.drawable.key_bg_special else R.drawable.key_bg_normal
         )
