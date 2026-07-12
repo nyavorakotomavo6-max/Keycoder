@@ -3,19 +3,24 @@
     xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_gravity="bottom">
+    android:layout_gravity="bottom"
+    android:background="@android:color/transparent">
 
+    <!-- Overlay de glow : wrap_content pour ne pas forcer la hauteur de la fenêtre -->
     <View
         android:id="@+id/keyboard_glow_overlay"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@android:color/transparent"
         android:visibility="invisible" />
 
+    <!-- Carte contenant les touches : seul élément avec un fond opaque -->
     <LinearLayout
         android:id="@+id/keyboard_card"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:layout_gravity="bottom" />
+        android:layout_gravity="bottom"
+        android:background="@drawable/keyboard_card_bg" />
 
 </FrameLayout>
