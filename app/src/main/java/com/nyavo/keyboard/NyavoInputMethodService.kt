@@ -52,12 +52,12 @@ class NyavoInputMethodService : InputMethodService() {
     }
 
     // ---------------------------------------------------------------
-    // Animation de lévitation
+    // Lévitation douce de l'ensemble du clavier
     // ---------------------------------------------------------------
 
     private fun startFloatingAnimation(target: View) {
         floatAnimator?.cancel()
-        floatAnimator = ObjectAnimator.ofFloat(target, "translationY", 0f, -6f, 0f).apply {
+        floatAnimator = ObjectAnimator.ofFloat(target, "translationY", 0f, -5f, 0f).apply {
             duration = 1800L
             repeatCount = ValueAnimator.INFINITE
             interpolator = AccelerateDecelerateInterpolator()
@@ -85,22 +85,12 @@ class NyavoInputMethodService : InputMethodService() {
     }
 
     private fun buildLettersView(): View {
-        val container = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-        }
-
+        val container = verticalContainer()
         val rows = KeyboardLayoutData.rowsFor(state.layoutType)
 
-        // Décalage progressif haut -> bas pour imiter la position naturelle
-        // des doigts sur un clavier physique (rangée du haut alignée,
-        // rangée du milieu légèrement décalée, rangée du bas encore plus).
-        container.addView(buildLetterRow(rows[0], startPaddingDp = 0))
-        container.addView(buildLetterRow(rows[1], startPaddingDp = 10))
-        container.addView(buildThirdLetterRow(rows[2], startPaddingDp = 4))
+        container.addView(buildLetterRow(rows[0]))
+        container.addView(buildLetterRow(rows[1]))
+        container.addView(buildThirdLetterRow(rows[2]))
         container.addView(buildPunctuationRow())
         container.addView(buildBottomRow())
 
@@ -108,18 +98,10 @@ class NyavoInputMethodService : InputMethodService() {
     }
 
     private fun buildEmojiView(): View {
-        val container = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-        }
-
+        val container = verticalContainer()
         container.addView(buildEmojiCategoryTabs())
         container.addView(buildEmojiGrid())
         container.addView(buildEmojiBottomRow())
-
         return container
     }
 
@@ -127,8 +109,8 @@ class NyavoInputMethodService : InputMethodService() {
     // Rangées — mode lettres
     // ---------------------------------------------------------------
 
-    private fun buildLetterRow(letters: List<String>, startPaddingDp: Int = 0): View {
-        val row = horizontalRow(startPaddingDp)
+    private fun buildLetterRow(letters: List<String>): View {
+        val row = horizontalRow()
         for (letter in letters) {
             row.addView(
                 makeKeyButton(
@@ -142,13 +124,10 @@ class NyavoInputMethodService : InputMethodService() {
         return row
     }
 
-    private fun buildThirdLetterRow(letters: List<String>, startPaddingDp: Int = 0): View {
-        val row = horizontalRow(startPaddingDp)
+    private fun buildThirdLetterRow(letters: List<String>): View {
+        val row = horizontalRow()
 
-        // Shift agrandi (1.5 -> 1.8) : touche à fort impact ergonomique,
-        // utilisée à chaque début de phrase / nom propre, doit rester
-        // facile à atteindre sans viser précisément.
-        val shift = makeKeyButton("⇧", 1.8f, isSpecial = true) { handleShiftTap() }
+        val shift = makeKeyButton("⇧", 1.6f, isSpecial = true) { handleShiftTap() }
         shiftButton = shift
         row.addView(shift)
 
@@ -163,10 +142,7 @@ class NyavoInputMethodService : InputMethodService() {
             )
         }
 
-        // Backspace agrandi (1.5 -> 1.8) : touche de correction d'erreur,
-        // la plus utilisée après les lettres elles-mêmes, doit être
-        // facile à atteindre pour éviter les frappes ratées.
-        row.addView(makeKeyButton("⌫", 1.8f, isSpecial = true) { handleBackspace() })
+        row.addView(makeKeyButton("⌫", 1.6f, isSpecial = true) { handleBackspace() })
         return row
     }
 
@@ -180,18 +156,12 @@ class NyavoInputMethodService : InputMethodService() {
 
     private fun buildBottomRow(): View {
         val row = horizontalRow()
-        row.addView(makeKeyButton("😊", 1.3f, isSpecial = true) { switchToEmojiMode() })
-        // Sélecteur de langue/layout agrandi (1.5 -> 1.7) : demandé
-        // explicitement comme touche importante à atteindre facilement.
+        row.addView(makeKeyButton("😊", 1.2f, isSpecial = true) { switchToEmojiMode() })
         row.addView(
-            makeKeyButton(layoutAbbreviation(state.layoutType), 1.7f, isSpecial = true) { cycleLayout() }
+            makeKeyButton(layoutAbbreviation(state.layoutType), 1.2f, isSpecial = true) { cycleLayout() }
         )
-        // Espace agrandi (4 -> 4.2) : la touche la plus utilisée de tout
-        // le clavier, occupe la zone de confort centrale des deux pouces.
-        row.addView(makeKeyButton("espace", 4.2f, isSpecial = true) { handleSpace() })
-        // Entrée agrandie (2 -> 2.3) : touche de validation fréquente,
-        // doit rester accessible même en frappe rapide.
-        row.addView(makeKeyButton("↵", 2.3f, isSpecial = true) { handleEnter() })
+        row.addView(makeKeyButton("espace", 5f, isSpecial = true) { handleSpace() })
+        row.addView(makeKeyButton("↵", 1.8f, isSpecial = true) { handleEnter() })
         return row
     }
 
@@ -204,21 +174,14 @@ class NyavoInputMethodService : InputMethodService() {
         EmojiData.CATEGORIES.forEachIndexed { index, category ->
             val label = category.label.take(4)
             row.addView(
-                makeKeyButton(label, 1f, heightDp = 40, isSpecial = true) { selectEmojiCategory(index) }
+                makeKeyButton(label, 1f, heightDp = 44, isSpecial = true) { selectEmojiCategory(index) }
             )
         }
         return row
     }
 
     private fun buildEmojiGrid(): View {
-        val container = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-        }
-
+        val container = verticalContainer()
         val category = EmojiData.CATEGORIES[currentEmojiCategoryIndex]
         val emojiRows = category.emojis.chunked(4)
 
@@ -226,7 +189,7 @@ class NyavoInputMethodService : InputMethodService() {
             val row = horizontalRow()
             for (emoji in emojiRow) {
                 row.addView(
-                    makeKeyButton(emoji, 1f, heightDp = 48, isSpecial = false) { handleEmojiTap(emoji) }
+                    makeKeyButton(emoji, 1f, heightDp = 56, isSpecial = false) { handleEmojiTap(emoji) }
                 )
             }
             val missing = 4 - emojiRow.size
@@ -241,9 +204,9 @@ class NyavoInputMethodService : InputMethodService() {
 
     private fun buildEmojiBottomRow(): View {
         val row = horizontalRow()
-        row.addView(makeKeyButton("ABC", 1.7f, isSpecial = true) { switchToLettersMode() })
-        row.addView(makeKeyButton("⌫", 1.8f, isSpecial = true) { handleBackspace() })
-        row.addView(makeKeyButton("espace", 4.2f, isSpecial = true) { handleSpace() })
+        row.addView(makeKeyButton("ABC", 1.6f, isSpecial = true) { switchToLettersMode() })
+        row.addView(makeKeyButton("⌫", 1.6f, isSpecial = true) { handleBackspace() })
+        row.addView(makeKeyButton("espace", 5f, isSpecial = true) { handleSpace() })
         return row
     }
 
@@ -356,23 +319,30 @@ class NyavoInputMethodService : InputMethodService() {
     // Helpers de construction de vues
     // ---------------------------------------------------------------
 
-    private fun horizontalRow(startPaddingDp: Int = 0): LinearLayout {
+    private fun verticalContainer(): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+    }
+
+    private fun horizontalRow(): LinearLayout {
         return LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             )
-            if (startPaddingDp > 0) {
-                setPadding(dp(startPaddingDp), 0, 0, 0)
-            }
         }
     }
 
     private fun makeKeyButton(
         label: String,
         weight: Float,
-        heightDp: Int = 48,
+        heightDp: Int = 58,
         isSpecial: Boolean = false,
         onLongClick: (() -> Unit)? = null,
         onClick: () -> Unit
@@ -396,7 +366,7 @@ class NyavoInputMethodService : InputMethodService() {
         )
 
         val params = LinearLayout.LayoutParams(0, dp(heightDp), weight)
-        params.setMargins(dp(2), dp(2), dp(2), dp(2))
+        params.setMargins(dp(5), dp(5), dp(5), dp(5))
         button.layoutParams = params
         button.setOnClickListener { onClick() }
         if (onLongClick != null) {
@@ -405,33 +375,28 @@ class NyavoInputMethodService : InputMethodService() {
                 true
             }
         }
-        attachPressAnimation(button)
+        attachSinkAnimation(button)
         return button
     }
 
     /**
-     * Micro-animation d'appui : légère réduction d'échelle au contact du
-     * doigt, retour fluide au relâchement. Utilise uniquement des
-     * transformations GPU (scaleX/scaleY), donc aucun recalcul de layout
-     * n'est déclenché — coût de performance négligeable même sur du
-     * matériel modeste.
+     * Effet "enfoncement d'un pixel" : léger déplacement vertical au
+     * contact du doigt, retour immédiat au relâchement. Le changement de
+     * couleur (ombre/lumière) est géré automatiquement par le selector
+     * XML via l'état natif Android state_pressed, donc aucune logique
+     * supplémentaire n'est nécessaire ici — seule la translation ajoute
+     * la sensation tactile "mécanique rétro". Transformation GPU pure,
+     * aucun recalcul de layout : coût négligeable, tient 60 FPS sans
+     * effort.
      */
-    private fun attachPressAnimation(button: Button) {
+    private fun attachSinkAnimation(button: Button) {
         button.setOnTouchListener { view, event ->
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
-                    view.animate()
-                        .scaleX(0.93f)
-                        .scaleY(0.93f)
-                        .setDuration(80L)
-                        .start()
+                    view.animate().translationY(2f).setDuration(40L).start()
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    view.animate()
-                        .scaleX(1f)
-                        .scaleY(1f)
-                        .setDuration(100L)
-                        .start()
+                    view.animate().translationY(0f).setDuration(60L).start()
                 }
             }
             false
@@ -440,7 +405,7 @@ class NyavoInputMethodService : InputMethodService() {
 
     private fun makeSpacer(weight: Float): View {
         return View(this).apply {
-            layoutParams = LinearLayout.LayoutParams(0, dp(48), weight)
+            layoutParams = LinearLayout.LayoutParams(0, dp(58), weight)
         }
     }
 
