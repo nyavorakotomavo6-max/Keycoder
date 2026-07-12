@@ -3,6 +3,7 @@
     <item>
         <shape android:shape="rectangle">
             <solid android:color="@color/card_border" />
+            <corners android:radius="14dp" />
         </shape>
     </item>
     <item
@@ -11,16 +12,8 @@
         android:right="3dp"
         android:bottom="3dp">
         <shape android:shape="rectangle">
-            <solid android:color="@color/card_shadow_tone" />
-        </shape>
-    </item>
-    <item
-        android:left="3dp"
-        android:top="3dp"
-        android:right="6dp"
-        android:bottom="6dp">
-        <shape android:shape="rectangle">
-            <solid android:color="@color/card_fill" />
+            <solid android:color="@color/card_bg" />
+            <corners android:radius="12dp" />
         </shape>
     </item>
 </layer-list>
