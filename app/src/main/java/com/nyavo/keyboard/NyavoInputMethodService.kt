@@ -79,25 +79,25 @@ class NyavoInputMethodService : InputMethodService() {
 
     private val cursorStepThresholdPx get() = dp(24)
 
-    // ========== VAULT MODE ==========
+    // ========== VAULT MODE ==========  
     private val vaultPrefs by lazy { getSharedPreferences("nyavo_vault", MODE_PRIVATE) }
     private val vaultKeyAlias = "nyavo_vault_aes_key"
     private var vaultPopup: PopupWindow? = null
     private val vaultLongPressMs = 3000L
-    // =================================
+    // =================================  
 
-    // ========== GAMIFICATION ==========
+    // ========== GAMIFICATION ==========  
     private val gameState = GameState()
     private var comboLabel: TextView? = null
     private var bossPopup: PopupWindow? = null
     private var bossProgressLabel: TextView? = null
     private var isKeyboardFrozen = false
-    // ===================================
+    // ===================================  
 
-    // ========== BOSS TOGGLE ==========
+    // ========== BOSS TOGGLE ==========  
     private var isBossEnabled = true
     private var bossToggleView: TextView? = null
-    // ===================================
+    // ===================================  
 
     override fun onEvaluateFullscreenMode(): Boolean = false
 
@@ -117,7 +117,7 @@ class NyavoInputMethodService : InputMethodService() {
         freezeOverlay = root.findViewById(R.id.keyboard_freeze_overlay)
         rootContainer = card
 
-        // Créer et ajouter le bouton boss au FrameLayout root
+        // Créer et ajouter le bouton boss au FrameLayout root  
         createBossToggleButton(root)
 
         render()
@@ -173,9 +173,9 @@ class NyavoInputMethodService : InputMethodService() {
         }
     }
 
-    // ---------------------------------------------------------------
-    // Lévitation & Effets Visuels
-    // ---------------------------------------------------------------
+    // ---------------------------------------------------------------  
+    // Lévitation & Effets Visuels  
+    // ---------------------------------------------------------------  
 
     private fun addFloatingAnimation(target: View, duration: Long = floatBaseDuration) {
         val anim = ObjectAnimator.ofFloat(target, "translationY", 0f, -5f, 0f).apply {
@@ -272,10 +272,10 @@ class NyavoInputMethodService : InputMethodService() {
         previewPopup?.let { if (it.isShowing) it.dismiss() }
     }
 
-    /**
-     * Positionne un popup centré horizontalement au-dessus du clavier.
-     * Utilise showAsDropDown pour un positionnement fiable par rapport
-     * à la vue card du clavier.
+    /**  
+     * Positionne un popup centré horizontalement au-dessus du clavier.  
+     * Utilise showAsDropDown pour un positionnement fiable par rapport  
+     * à la vue card du clavier.  
      */
     private fun showPopupAboveKeyboard(popup: PopupWindow, content: View, widthDp: Int) {
         val root = rootContainer ?: return
@@ -289,7 +289,7 @@ class NyavoInputMethodService : InputMethodService() {
         popup.width = measuredWidth
         popup.height = measuredHeight
 
-        // Centré horizontalement au-dessus de la card
+        // Centré horizontalement au-dessus de la card  
         val xoff = (root.width - measuredWidth) / 2
         val yoff = -measuredHeight - dp(8)
 
@@ -297,9 +297,9 @@ class NyavoInputMethodService : InputMethodService() {
         popup.showAsDropDown(root, xoff, yoff)
     }
 
-    // ---------------------------------------------------------------
-    // Rendu Global
-    // ---------------------------------------------------------------
+    // ---------------------------------------------------------------  
+    // Rendu Global  
+    // ---------------------------------------------------------------  
 
     private fun render() {
         val root = rootContainer ?: return
@@ -340,9 +340,9 @@ class NyavoInputMethodService : InputMethodService() {
         return container
     }
 
-    // ---------------------------------------------------------------
-    // Barre de combo (gamification)
-    // ---------------------------------------------------------------
+    // ---------------------------------------------------------------  
+    // Barre de combo (gamification)  
+    // ---------------------------------------------------------------  
 
     private fun buildComboBar(): View {
         val label = TextView(this).apply {
@@ -426,9 +426,9 @@ class NyavoInputMethodService : InputMethodService() {
             .start()
     }
 
-    // ---------------------------------------------------------------
-    // Boss Fight
-    // ---------------------------------------------------------------
+    // ---------------------------------------------------------------  
+    // Boss Fight  
+    // ---------------------------------------------------------------  
 
     private fun startBossFight() {
         if (!isBossEnabled) return
@@ -514,9 +514,9 @@ class NyavoInputMethodService : InputMethodService() {
         }
     }
 
-    // ---------------------------------------------------------------
-    // Barre d'outils Développeur
-    // ---------------------------------------------------------------
+    // ---------------------------------------------------------------  
+    // Barre d'outils Développeur  
+    // ---------------------------------------------------------------  
 
     private fun buildDevRow(): View {
         val row = horizontalRow()
@@ -562,9 +562,9 @@ class NyavoInputMethodService : InputMethodService() {
         currentInputConnection?.performContextMenuAction(actionId)
     }
 
-    // ---------------------------------------------------------------
-    // Rangées Standard
-    // ---------------------------------------------------------------
+    // ---------------------------------------------------------------  
+    // Rangées Standard  
+    // ---------------------------------------------------------------  
 
     private fun buildLetterRow(letters: List<String>, isTopRow: Boolean = false): View {
         val row = horizontalRow()
@@ -650,9 +650,9 @@ class NyavoInputMethodService : InputMethodService() {
         return row
     }
 
-    // ---------------------------------------------------------------
-    // Barre d'espace
-    // ---------------------------------------------------------------
+    // ---------------------------------------------------------------  
+    // Barre d'espace  
+    // ---------------------------------------------------------------  
 
     private fun makeSpaceButton(weight: Float): Button {
         val button = Button(this).apply {
@@ -809,9 +809,9 @@ class NyavoInputMethodService : InputMethodService() {
         ic.sendKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_UP, keyCode, 0))
     }
 
-    // ---------------------------------------------------------------
-    // Touche lettre composite
-    // ---------------------------------------------------------------
+    // ---------------------------------------------------------------  
+    // Touche lettre composite  
+    // ---------------------------------------------------------------  
 
     private fun makeLetterKey(letter: String, topRowIndex: Int?): View {
         val container = FrameLayout(this).apply {
@@ -948,9 +948,9 @@ class NyavoInputMethodService : InputMethodService() {
         }
     }
 
-    // ---------------------------------------------------------------
-    // Popup symbole / chiffre
-    // ---------------------------------------------------------------
+    // ---------------------------------------------------------------  
+    // Popup symbole / chiffre  
+    // ---------------------------------------------------------------  
 
     private fun showSymbolPopup(anchor: View, letter: String, topRowIndex: Int?) {
         dismissPopup()
@@ -1043,9 +1043,9 @@ class NyavoInputMethodService : InputMethodService() {
         currentHighlightIndex = 0
     }
 
-    // ---------------------------------------------------------------
-    // Saisie & États Standard
-    // ---------------------------------------------------------------
+    // ---------------------------------------------------------------  
+    // Saisie & États Standard  
+    // ---------------------------------------------------------------  
 
     private fun handleLetterTap(letter: String) {
         val output = if (state.isUppercase()) letter.uppercase() else letter
@@ -1114,9 +1114,9 @@ class NyavoInputMethodService : InputMethodService() {
         KeyboardLayoutType.QWERTZ -> "QWZ"
     }
 
-    // ---------------------------------------------------------------
-    // VAULT MODE (Coffre-Fort Chiffré)
-    // ---------------------------------------------------------------
+    // ---------------------------------------------------------------  
+    // VAULT MODE (Coffre-Fort Chiffré)  
+    // ---------------------------------------------------------------  
 
     private fun isPasswordField(): Boolean {
         val inputType = currentInputEditorInfo?.inputType ?: return false
@@ -1262,13 +1262,13 @@ class NyavoInputMethodService : InputMethodService() {
         vaultPopup = null
     }
 
-    /**
-     * CORRECTION : Utilisation d'un AlertDialog au lieu de PopupWindow
-     * pour le formulaire d'ajout. Les PopupWindow avec EditText dans un
-     * InputMethodService sont instables (conflit de focus IME).
-     *
-     * Le dialog utilise TYPE_APPLICATION_ATTACHED_DIALOG avec le token
-     * de la fenêtre du service IME.
+    /**  
+     * CORRECTION : Utilisation d'un AlertDialog au lieu de PopupWindow  
+     * pour le formulaire d'ajout. Les PopupWindow avec EditText dans un  
+     * InputMethodService sont instables (conflit de focus IME).  
+     *  
+     * Le dialog utilise TYPE_APPLICATION_ATTACHED_DIALOG avec le token  
+     * de la fenêtre du service IME.  
      */
     private fun showAddCredentialDialog() {
         dismissVaultPopup()
@@ -1368,13 +1368,15 @@ class NyavoInputMethodService : InputMethodService() {
             dialog.dismiss()
         }
 
-        // Configuration de la fenêtre du dialog pour un IME
+        // Configuration de la fenêtre du dialog pour un IME  
         dialog.window?.let { dialogWindow ->
             dialogWindow.setType(WindowManager.LayoutParams.TYPE_APPLICATION_ATTACHED_DIALOG)
-            // CORRECTION : utiliser window (le DialogWindow du service) puis decorView
-            val imeWindow = window
-            if (imeWindow != null) {
-                dialogWindow.attributes.token = imeWindow.decorView.windowToken
+            // CORRECTION : On utilise le windowToken de la vue principale du clavier attachée
+            val imeWindowToken = rootContainer?.windowToken ?: window?.window?.decorView?.windowToken
+            if (imeWindowToken != null) {
+                dialogWindow.attributes = dialogWindow.attributes.apply {
+                    this.token = imeWindowToken
+                }
             }
             dialogWindow.addFlags(WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM)
             dialogWindow.setBackgroundDrawable(ContextCompat.getDrawable(this, R.drawable.keyboard_card_bg))
@@ -1383,13 +1385,13 @@ class NyavoInputMethodService : InputMethodService() {
         dialog.show()
     }
 
-    // ---------------------------------------------------------------
-    // Bouton Toggle Boss (flottant, indépendant)
-    // ---------------------------------------------------------------
+    // ---------------------------------------------------------------  
+    // Bouton Toggle Boss (flottant, indépendant)  
+    // ---------------------------------------------------------------  
 
-    /**
-     * Crée le bouton toggle boss et le positionne au-dessus du clavier,
-     * centré horizontalement, avec un espace de 8dp (≈ 2mm).
+    /**  
+     * Crée le bouton toggle boss et le positionne au-dessus du clavier,  
+     * centré horizontalement, avec un espace de 8dp (≈ 2mm).  
      */
     private fun createBossToggleButton(root: FrameLayout) {
         val btn = TextView(this).apply {
@@ -1415,19 +1417,19 @@ class NyavoInputMethodService : InputMethodService() {
         root.addView(btn, 0)
         bossToggleView = btn
 
-        // Positionner dynamiquement après que le layout soit mesuré
+        // Positionner dynamiquement après que le layout soit mesuré  
         root.viewTreeObserver.addOnGlobalLayoutListener(object : ViewTreeObserver.OnGlobalLayoutListener {
             override fun onGlobalLayout() {
                 val card = rootContainer ?: return
                 if (card.height == 0 || btn.height == 0) return
 
-                // Centré horizontalement
+                // Centré horizontalement  
                 btn.x = (root.width - btn.width) / 2f
-                // Au-dessus du clavier avec 8dp d'espace
+                // Au-dessus du clavier avec 8dp d'espace  
                 val targetY = card.y - btn.height - dp(8)
 
                 if (targetY < dp(4)) {
-                    // Pas assez de place : agrandir le padding du root
+                    // Pas assez de place : agrandir le padding du root  
                     val neededPadding = dp(8) + btn.height + dp(4)
                     if (root.paddingTop < neededPadding) {
                         root.setPadding(root.paddingLeft, neededPadding, root.paddingRight, root.paddingBottom)
@@ -1443,7 +1445,7 @@ class NyavoInputMethodService : InputMethodService() {
             }
         })
 
-        // Lévitation indépendante (durée différente du clavier)
+        // Lévitation indépendante (durée différente du clavier)  
         addFloatingAnimation(btn, 2100L)
     }
 
@@ -1466,9 +1468,9 @@ class NyavoInputMethodService : InputMethodService() {
         }
     }
 
-    // ---------------------------------------------------------------
-    // Générateurs Dynamiques de Vues
-    // ---------------------------------------------------------------
+    // ---------------------------------------------------------------  
+    // Générateurs Dynamiques de Vues  
+    // ---------------------------------------------------------------  
 
     private fun verticalContainer() = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
@@ -1528,4 +1530,5 @@ class NyavoInputMethodService : InputMethodService() {
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+
 }
