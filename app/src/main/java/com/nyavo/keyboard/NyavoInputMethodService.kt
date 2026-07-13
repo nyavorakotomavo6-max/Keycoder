@@ -276,9 +276,10 @@ class NyavoInputMethodService : InputMethodService() {
      * secret, et le boss fight, pour éviter qu'ils ne se superposent au
      * clavier lui-même.
      *
-     * CORRECTION : utilisation de showAsDropDown avec offset négatif en Y
-     * pour un positionnement fiable par rapport à la carte du clavier,
-     * sans décalage dû aux coordonnées fenêtre/écran.
+     * CORRECTION : showAtLocation attend des coordonnées relatives à la
+     * fenêtre du clavier, pas des coordonnées absolues de l'écran.
+     * On utilise getLocationInWindow() et on supprime le coerceAtLeast
+     * qui forçait le popup en haut de la fenêtre quand il dépassait.
      */
     private fun showPopupAboveKeyboard(popup: PopupWindow, content: View, widthDp: Int) {
         val root = rootContainer ?: return
@@ -289,12 +290,17 @@ class NyavoInputMethodService : InputMethodService() {
         val measuredWidth = content.measuredWidth
         val measuredHeight = content.measuredHeight
 
+        // Coordonnées relatives à la fenêtre du clavier (pas à l'écran)
+        val loc = IntArray(2)
+        root.getLocationInWindow(loc)
+
+        val x = loc[0] + (root.width - measuredWidth) / 2
+        val y = loc[1] - measuredHeight - dp(8)
+
         popup.width = measuredWidth
         popup.height = measuredHeight
-
-        val xoff = (root.width - measuredWidth) / 2
-        val yoff = -measuredHeight - dp(8)
-        popup.showAsDropDown(root, xoff, yoff)
+        popup.isClippingEnabled = false
+        popup.showAtLocation(root, Gravity.NO_GRAVITY, x, y)
     }
 
     // ---------------------------------------------------------------
