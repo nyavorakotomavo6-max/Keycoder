@@ -2,7 +2,9 @@ package com.nyavo.keyboard
 
 import android.animation.ObjectAnimator
 import android.animation.ValueAnimator
+import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.ColorDrawable
 import android.inputmethodservice.InputMethodService
 import android.os.Build
 import android.os.Handler
@@ -90,6 +92,11 @@ class NyavoInputMethodService : InputMethodService() {
     private var isKeyboardFrozen = false
     // ===================================
 
+    // ========== BOSS TOGGLE ==========
+    private var bossToggleButton: TextView? = null
+    private var isBossEnabled = true
+    // ===================================
+
     override fun onEvaluateFullscreenMode(): Boolean = false
 
     override fun onCreate() {
@@ -111,6 +118,7 @@ class NyavoInputMethodService : InputMethodService() {
         addFloatingAnimation(card)
         setupPreviewPopup()
         syncOverlaySizesToCard(card)
+        setupBossToggleButton(root)
         return root
     }
 
@@ -192,10 +200,6 @@ class NyavoInputMethodService : InputMethodService() {
         val overlay = glowOverlay ?: return
         if (overlay.width == 0 || overlay.height == 0 || !overlay.isAttachedToWindow) return
 
-        // Anti-saturation : on ignore les flashs trop rapprochés pour ne
-        // pas empiler les animateurs pendant une frappe très rapide, ce
-        // qui pourrait provoquer du jank perçu comme des lettres qui ne
-        // s'affichent pas.
         val now = System.currentTimeMillis()
         if (now - lastGlowTimeMs < 60L) return
         lastGlowTimeMs = now
@@ -276,10 +280,8 @@ class NyavoInputMethodService : InputMethodService() {
      * secret, et le boss fight, pour éviter qu'ils ne se superposent au
      * clavier lui-même.
      *
-     * CORRECTION : showAtLocation attend des coordonnées relatives à la
-     * fenêtre du clavier, pas des coordonnées absolues de l'écran.
-     * On utilise getLocationInWindow() et on supprime le coerceAtLeast
-     * qui forçait le popup en haut de la fenêtre quand il dépassait.
+     * showAtLocation attend des coordonnées relatives à la fenêtre du
+     * clavier : on utilise getLocationInWindow().
      */
     private fun showPopupAboveKeyboard(popup: PopupWindow, content: View, widthDp: Int) {
         val root = rootContainer ?: return
@@ -290,7 +292,6 @@ class NyavoInputMethodService : InputMethodService() {
         val measuredWidth = content.measuredWidth
         val measuredHeight = content.measuredHeight
 
-        // Coordonnées relatives à la fenêtre du clavier (pas à l'écran)
         val loc = IntArray(2)
         root.getLocationInWindow(loc)
 
@@ -394,7 +395,7 @@ class NyavoInputMethodService : InputMethodService() {
             }
         }
 
-        if (gameState.shouldTriggerBoss()) {
+        if (isBossEnabled && gameState.shouldTriggerBoss()) {
             startBossFight()
         }
     }
@@ -437,6 +438,7 @@ class NyavoInputMethodService : InputMethodService() {
     // ---------------------------------------------------------------
 
     private fun startBossFight() {
+        if (!isBossEnabled) return
         val word = gameState.startBoss()
         freezeKeyboard(false)
 
@@ -816,9 +818,6 @@ class NyavoInputMethodService : InputMethodService() {
 
     // ---------------------------------------------------------------
     // Touche lettre composite : label principal + indicateurs de coin
-    // (symbole en bas-droite, chiffre en haut-droite pour la rangée du
-    // haut) — répond à la demande de rendre visibles les caractères
-    // accessibles par appui long.
     // ---------------------------------------------------------------
 
     private fun makeLetterKey(letter: String, topRowIndex: Int?): View {
@@ -883,14 +882,6 @@ class NyavoInputMethodService : InputMethodService() {
         return container
     }
 
-    /**
-     * Stratégie anti-perte de frappe : le texte est committé en tout
-     * premier sur ACTION_DOWN, avant tout effet secondaire (vibration,
-     * flash, bulle d'aperçu), qui sont eux différés via view.post pour
-     * ne jamais retarder la réception du prochain événement tactile.
-     * Sous 90ms depuis la dernière frappe, on saute même les effets non
-     * essentiels pour rester fluide en frappe très rapide.
-     */
     private fun attachLetterKeyBehavior(container: FrameLayout, letter: String, topRowIndex: Int?) {
         var longPressTriggered = false
 
@@ -1268,7 +1259,10 @@ class NyavoInputMethodService : InputMethodService() {
         val popup = PopupWindow(container, dp(300), LinearLayout.LayoutParams.WRAP_CONTENT, true).apply {
             isOutsideTouchable = true
             isTouchable = true
-            setBackgroundDrawable(null)
+            // CORRECTION : background transparent pour délimiter correctement
+            // la zone "intérieure" du popup. Sans cela, Android considère
+            // parfois les clics sur les boutons comme des touches "outside".
+            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
         }
         showPopupAboveKeyboard(popup, container, 300)
         vaultPopup = popup
@@ -1372,7 +1366,8 @@ class NyavoInputMethodService : InputMethodService() {
         val popup = PopupWindow(container, dp(300), LinearLayout.LayoutParams.WRAP_CONTENT, true).apply {
             isOutsideTouchable = true
             isTouchable = true
-            setBackgroundDrawable(null)
+            // Même correction que pour le vault
+            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
         }
         showPopupAboveKeyboard(popup, container, 300)
         addCredentialPopup = popup
@@ -1381,6 +1376,55 @@ class NyavoInputMethodService : InputMethodService() {
     private fun dismissAddCredentialPopup() {
         addCredentialPopup?.dismiss()
         addCredentialPopup = null
+    }
+
+    // ---------------------------------------------------------------
+    // Bouton Toggle Boss (flottant, indépendant)
+    // ---------------------------------------------------------------
+
+    private fun setupBossToggleButton(root: FrameLayout) {
+        val btn = TextView(this).apply {
+            text = "⚔"
+            textSize = 16f
+            typeface = sharedTypeface
+            gravity = Gravity.CENTER
+            setTextColor(ContextCompat.getColor(this@NyavoInputMethodService, R.color.combo_fire))
+            background = ContextCompat.getDrawable(this@NyavoInputMethodService, R.drawable.key_bg_special)
+            setPadding(dp(10), dp(6), dp(10), dp(6))
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                gravity = Gravity.TOP or Gravity.END
+                setMargins(0, dp(8), dp(8), 0)
+            }
+            setOnClickListener { toggleBossEnabled() }
+        }
+        root.addView(btn)
+        bossToggleButton = btn
+        // Lévitation indépendante avec une durée différente du clavier
+        // pour ne pas être synchronisée
+        addFloatingAnimation(btn, 2100L)
+        updateBossToggleAppearance()
+    }
+
+    private fun toggleBossEnabled() {
+        isBossEnabled = !isBossEnabled
+        updateBossToggleAppearance()
+        bossToggleButton?.performHapticFeedback(
+            if (isBossEnabled) HapticFeedbackConstants.CONFIRM else HapticFeedbackConstants.REJECT
+        )
+    }
+
+    private fun updateBossToggleAppearance() {
+        val btn = bossToggleButton ?: return
+        if (isBossEnabled) {
+            btn.text = "⚔"
+            btn.setTextColor(ContextCompat.getColor(this, R.color.combo_fire))
+        } else {
+            btn.text = "🛡"
+            btn.setTextColor(ContextCompat.getColor(this, R.color.combo_base))
+        }
     }
 
     // ---------------------------------------------------------------
