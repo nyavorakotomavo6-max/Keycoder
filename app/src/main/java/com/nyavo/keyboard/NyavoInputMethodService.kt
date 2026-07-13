@@ -79,6 +79,11 @@ class NyavoInputMethodService : InputMethodService() {
 
     private val cursorStepThresholdPx get() = dp(24)
 
+    //GlowTimeMs = 0L
+    private var lastKeystrokeTimeMs = 0L
+
+    private val cursorStepThresholdPx get() = dp(24)
+
     // ========== VAULT MODE ==========
     private val vaultPrefs by lazy { getSharedPreferences("nyavo_vault", MODE_PRIVATE) }
     private val vaultKeyAlias = "nyavo_vault_aes_key"
@@ -95,8 +100,8 @@ class NyavoInputMethodService : InputMethodService() {
     // ===================================
 
     // ========== BOSS TOGGLE ==========
-    private var bossToggleButton: TextView? = null
     private var isBossEnabled = true
+    private var bossToggleView: TextView? = null
     // ===================================
 
     override fun onEvaluateFullscreenMode(): Boolean = false
@@ -116,11 +121,15 @@ class NyavoInputMethodService : InputMethodService() {
         glowOverlay = root.findViewById(R.id.keyboard_glow_overlay)
         freezeOverlay = root.findViewById(R.id.keyboard_freeze_overlay)
         rootContainer = card
+
+        // Créer et ajouter le bouton boss au FrameLayout root
+        createBossToggleButton(root)
+
         render()
         addFloatingAnimation(card)
         setupPreviewPopup()
         syncOverlaySizesToCard(card)
-        setupBossToggleButton(root)
+
         return root
     }
 
@@ -268,6 +277,11 @@ class NyavoInputMethodService : InputMethodService() {
         previewPopup?.let { if (it.isShowing) it.dismiss() }
     }
 
+    /**
+     * Positionne un popup centré horizontalement au-dessus du clavier.
+     * Utilise showAsDropDown pour un positionnement fiable par rapport
+     * à la vue card du clavier.
+     */
     private fun showPopupAboveKeyboard(popup: PopupWindow, content: View, widthDp: Int) {
         val root = rootContainer ?: return
         content.measure(
@@ -277,16 +291,15 @@ class NyavoInputMethodService : InputMethodService() {
         val measuredWidth = content.measuredWidth
         val measuredHeight = content.measuredHeight
 
-        val loc = IntArray(2)
-        root.getLocationInWindow(loc)
-
-        val x = loc[0] + (root.width - measuredWidth) / 2
-        val y = loc[1] - measuredHeight - dp(8)
-
         popup.width = measuredWidth
         popup.height = measuredHeight
+
+        // Centré horizontalement au-dessus de la card
+        val xoff = (root.width - measuredWidth) / 2
+        val yoff = -measuredHeight - dp(8)
+
         popup.isClippingEnabled = false
-        popup.showAtLocation(root, Gravity.NO_GRAVITY, x, y)
+        popup.showAsDropDown(root, xoff, yoff)
     }
 
     // ---------------------------------------------------------------
@@ -1255,14 +1268,13 @@ class NyavoInputMethodService : InputMethodService() {
     }
 
     /**
-     * CORRECTION : remplacé le PopupWindow par un AlertDialog.
-     * Les PopupWindow contenant des EditText dans un InputMethodService
-     * sont instables (conflit de focus IME). AlertDialog gère correctement
-     * les champs texte avec sa propre fenêtre.
+     * CORRECTION CRITIQUE : Utilisation d'un AlertDialog au lieu de
+     * PopupWindow pour le formulaire d'ajout. Les PopupWindow avec
+     * EditText dans un InputMethodService sont instables car Android
+     * gère mal le focus IME entre le clavier et le popup.
      *
-     * CORRECTION COMPILE : windowToken n'existe pas sur InputMethodService.
-     * On utilise window?.window?.decorView?.windowToken via le service.
-     * Si null, on fallback sur le token de la vue racine du clavier.
+     * Le dialog utilise TYPE_APPLICATION_ATTACHED_DIALOG avec le token
+     * de la fenêtre du service IME pour s'afficher correctement.
      */
     private fun showAddCredentialDialog() {
         dismissVaultPopup()
@@ -1362,16 +1374,14 @@ class NyavoInputMethodService : InputMethodService() {
             dialog.dismiss()
         }
 
-        // Afficher le dialog depuis un IME : TYPE_APPLICATION_ATTACHED_DIALOG
-        // avec le token de la fenêtre du clavier.
-        // window?.window?.decorView?.windowToken est la méthode correcte
-        // depuis un InputMethodService.
+        // Configuration de la fenêtre du dialog pour qu'elle s'affiche
+        // depuis un InputMethodService
         dialog.window?.let { dialogWindow ->
             dialogWindow.setType(WindowManager.LayoutParams.TYPE_APPLICATION_ATTACHED_DIALOG)
-            val token = window?.window?.decorView?.windowToken
-                ?: rootContainer?.windowToken
-            if (token != null) {
-                dialogWindow.attributes.token = token
+            // Récupérer le token de la fenêtre du service IME
+            val imeWindow = window
+            if (imeWindow != null) {
+                dialogWindow.attributes.token = imeWindow.decorView.windowToken
             }
             dialogWindow.addFlags(WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM)
             dialogWindow.setBackgroundDrawable(ContextCompat.getDrawable(this, R.drawable.keyboard_card_bg))
@@ -1384,7 +1394,13 @@ class NyavoInputMethodService : InputMethodService() {
     // Bouton Toggle Boss (flottant, indépendant)
     // ---------------------------------------------------------------
 
-    private fun setupBossToggleButton(root: FrameLayout) {
+    /**
+     * Crée le bouton toggle boss et le positionne au-dessus du clavier,
+     * centré horizontalement, avec un espace de 8dp (≈ 2mm).
+     * Le bouton est ajouté au FrameLayout root, pas à la card du clavier,
+     * pour ne pas être affecté par render().
+     */
+    private fun createBossToggleButton(root: FrameLayout) {
         val btn = TextView(this).apply {
             text = "⚔"
             textSize = 16f
@@ -1393,6 +1409,8 @@ class NyavoInputMethodService : InputMethodService() {
             setTextColor(ContextCompat.getColor(this@NyavoInputMethodService, R.color.combo_fire))
             background = ContextCompat.getDrawable(this@NyavoInputMethodService, R.drawable.key_bg_special)
             setPadding(dp(10), dp(6), dp(10), dp(6))
+            isClickable = true
+            isFocusable = true
         }
 
         val params = FrameLayout.LayoutParams(
@@ -1400,45 +1418,54 @@ class NyavoInputMethodService : InputMethodService() {
             FrameLayout.LayoutParams.WRAP_CONTENT
         )
         btn.layoutParams = params
-        root.addView(btn, 0)
-        bossToggleButton = btn
 
-        val card = rootContainer ?: return
-        card.viewTreeObserver.addOnGlobalLayoutListener(object : ViewTreeObserver.OnGlobalLayoutListener {
+        btn.setOnClickListener { toggleBossEnabled() }
+
+        root.addView(btn, 0)
+        bossToggleView = btn
+
+        // Positionner dynamiquement après que le layout soit mesuré
+        root.viewTreeObserver.addOnGlobalLayoutListener(object : ViewTreeObserver.OnGlobalLayoutListener {
             override fun onGlobalLayout() {
+                val card = rootContainer ?: return
                 if (card.height == 0 || btn.height == 0) return
 
+                // Centré horizontalement
                 btn.x = (root.width - btn.width) / 2f
+                // Au-dessus du clavier avec 8dp d'espace
                 val targetY = card.y - btn.height - dp(8)
 
-                if (targetY < 0) {
-                    val needed = (-targetY).toInt() + dp(8)
-                    root.setPadding(root.paddingLeft, needed, root.paddingRight, root.paddingBottom)
-                    btn.y = dp(8).toFloat()
+                if (targetY < dp(4)) {
+                    // Pas assez de place : agrandir le padding du root
+                    val neededPadding = dp(8) + btn.height + dp(4)
+                    if (root.paddingTop < neededPadding) {
+                        root.setPadding(root.paddingLeft, neededPadding, root.paddingRight, root.paddingBottom)
+                    }
+                    btn.y = dp(4).toFloat()
                 } else {
                     btn.y = targetY
                 }
 
-                if (card.viewTreeObserver.isAlive) {
-                    card.viewTreeObserver.removeOnGlobalLayoutListener(this)
+                if (root.viewTreeObserver.isAlive) {
+                    root.viewTreeObserver.removeOnGlobalLayoutListener(this)
                 }
             }
         })
 
+        // Lévitation indépendante (durée différente du clavier)
         addFloatingAnimation(btn, 2100L)
-        updateBossToggleAppearance()
     }
 
     private fun toggleBossEnabled() {
         isBossEnabled = !isBossEnabled
         updateBossToggleAppearance()
-        bossToggleButton?.performHapticFeedback(
+        bossToggleView?.performHapticFeedback(
             if (isBossEnabled) HapticFeedbackConstants.CONFIRM else HapticFeedbackConstants.REJECT
         )
     }
 
     private fun updateBossToggleAppearance() {
-        val btn = bossToggleButton ?: return
+        val btn = bossToggleView ?: return
         if (isBossEnabled) {
             btn.text = "⚔"
             btn.setTextColor(ContextCompat.getColor(this, R.color.combo_fire))
