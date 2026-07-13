@@ -1260,8 +1260,9 @@ class NyavoInputMethodService : InputMethodService() {
      * sont instables (conflit de focus IME). AlertDialog gère correctement
      * les champs texte avec sa propre fenêtre.
      *
-     * CORRECTION COMPILE : suppression de setToken() qui n'existe pas sur
-     * Window. On passe le token via les attributs de la fenêtre du dialog.
+     * CORRECTION COMPILE : windowToken n'existe pas sur InputMethodService.
+     * On utilise window?.window?.decorView?.windowToken via le service.
+     * Si null, on fallback sur le token de la vue racine du clavier.
      */
     private fun showAddCredentialDialog() {
         dismissVaultPopup()
@@ -1362,12 +1363,18 @@ class NyavoInputMethodService : InputMethodService() {
         }
 
         // Afficher le dialog depuis un IME : TYPE_APPLICATION_ATTACHED_DIALOG
-        // avec le token de la fenêtre du clavier passé via les attributs.
-        dialog.window?.let { window ->
-            window.setType(WindowManager.LayoutParams.TYPE_APPLICATION_ATTACHED_DIALOG)
-            window.attributes.token = windowToken
-            window.addFlags(WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM)
-            window.setBackgroundDrawable(ContextCompat.getDrawable(this, R.drawable.keyboard_card_bg))
+        // avec le token de la fenêtre du clavier.
+        // window?.window?.decorView?.windowToken est la méthode correcte
+        // depuis un InputMethodService.
+        dialog.window?.let { dialogWindow ->
+            dialogWindow.setType(WindowManager.LayoutParams.TYPE_APPLICATION_ATTACHED_DIALOG)
+            val token = window?.window?.decorView?.windowToken
+                ?: rootContainer?.windowToken
+            if (token != null) {
+                dialogWindow.attributes.token = token
+            }
+            dialogWindow.addFlags(WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM)
+            dialogWindow.setBackgroundDrawable(ContextCompat.getDrawable(this, R.drawable.keyboard_card_bg))
         }
 
         dialog.show()
