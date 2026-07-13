@@ -28,5 +28,12 @@
     <color name="g_highlight">#A8C8FF</color>
 
     <color name="key_text">#FFFFFF</color>
+    <color name="key_corner_text">#C9C4F5</color>
     <color name="glow_flash">#4D8B5CF6</color>
+
+    <color name="combo_base">#B7ACFF</color>
+    <color name="combo_gold">#FFD700</color>
+    <color name="combo_fire">#FF5A1F</color>
+    <color name="combo_neon">#00E5FF</color>
+    <color name="freeze_tint">#992A0A0A</color>
 </resources>
