@@ -4,8 +4,11 @@ import android.animation.ObjectAnimator
 import android.animation.ValueAnimator
 import android.graphics.Typeface
 import android.inputmethodservice.InputMethodService
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.VibrationEffect
+import android.os.Vibrator
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
@@ -15,7 +18,6 @@ import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewAnimationUtils
-import android.view.ViewGroup
 import android.view.animation.AccelerateDecelerateInterpolator
 import android.view.inputmethod.EditorInfo
 import android.widget.Button
@@ -37,16 +39,19 @@ class NyavoInputMethodService : InputMethodService() {
     private lateinit var state: KeyboardState
     private var rootContainer: LinearLayout? = null
     private var glowOverlay: View? = null
+    private var freezeOverlay: View? = null
     private var shiftButton: Button? = null
     private var currentEmojiCategoryIndex = 0
 
     private val standardKeyHeightDp = 42
     private val floatAnimators = mutableListOf<ObjectAnimator>()
+    private var floatBaseDuration = 1800L
 
     private val topRowDigits = listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0")
 
     private val normalTextSizeSp = 18f
     private val bigTextSizeSp = 26f
+    private val cornerTextSizeSp = 9f
 
     private val sharedTypeface by lazy { Typeface.create(Typeface.MONOSPACE, Typeface.BOLD) }
 
@@ -64,6 +69,8 @@ class NyavoInputMethodService : InputMethodService() {
     private var previewText: TextView? = null
 
     private var glowFadeRunnable: Runnable? = null
+    private var lastGlowTimeMs = 0L
+    private var lastKeystrokeTimeMs = 0L
 
     private val cursorStepThresholdPx get() = dp(24)
 
@@ -75,6 +82,14 @@ class NyavoInputMethodService : InputMethodService() {
     private val vaultLongPressMs = 3000L
     // =================================
 
+    // ========== GAMIFICATION ==========
+    private val gameState = GameState()
+    private var comboLabel: TextView? = null
+    private var bossPopup: PopupWindow? = null
+    private var bossProgressLabel: TextView? = null
+    private var isKeyboardFrozen = false
+    // ===================================
+
     override fun onEvaluateFullscreenMode(): Boolean = false
 
     override fun onCreate() {
@@ -82,7 +97,7 @@ class NyavoInputMethodService : InputMethodService() {
         state = KeyboardState(this)
     }
 
-   override fun onCreateInputView(): View {
+    override fun onCreateInputView(): View {
         floatAnimators.forEach { it.cancel() }
         floatAnimators.clear()
 
@@ -90,31 +105,15 @@ class NyavoInputMethodService : InputMethodService() {
 
         val card = root.findViewById<LinearLayout>(R.id.keyboard_card)
         glowOverlay = root.findViewById(R.id.keyboard_glow_overlay)
+        freezeOverlay = root.findViewById(R.id.keyboard_freeze_overlay)
         rootContainer = card
         render()
         addFloatingAnimation(card)
         setupPreviewPopup()
-        syncGlowOverlaySizeToCard(card)
+        syncOverlaySizesToCard(card)
         return root
     }
-/**
-     * Cale la taille du calque de lueur exactement sur celle de la carte
-     * du clavier, à chaque changement de layout (ex: passage Lettres <->
-     * Emoji, qui change la hauteur totale). Fait par code plutôt qu'en
-     * XML avec match_parent pour éviter l'ambiguïté de mesure qui
-     * poussait la fenêtre entière du clavier à occuper tout l'écran.
-     */
-    private fun syncGlowOverlaySizeToCard(card: View) {
-        card.viewTreeObserver.addOnGlobalLayoutListener {
-            val overlay = glowOverlay ?: return@addOnGlobalLayoutListener
-            val params = overlay.layoutParams
-            if (params.width != card.width || params.height != card.height) {
-                params.width = card.width
-                params.height = card.height
-                overlay.layoutParams = params
-            }
-        }
-    }
+
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
         floatAnimators.forEach { if (!it.isRunning) it.start() }
@@ -127,6 +126,7 @@ class NyavoInputMethodService : InputMethodService() {
         dismissPreview()
         dismissVaultPopup()
         dismissAddCredentialPopup()
+        dismissBossPopup()
         longPressHandler.removeCallbacksAndMessages(null)
     }
 
@@ -138,14 +138,40 @@ class NyavoInputMethodService : InputMethodService() {
         dismissPreview()
         dismissVaultPopup()
         dismissAddCredentialPopup()
+        dismissBossPopup()
         longPressHandler.removeCallbacksAndMessages(null)
+    }
+
+    /**
+     * Cale la taille des calques (lueur, gel) exactement sur celle de la
+     * carte du clavier, par code plutôt qu'en XML match_parent, pour
+     * éviter que la fenêtre entière du clavier ne s'étende à tout
+     * l'écran (ce qui poussait la barre d'envoi des autres apps).
+     */
+    private fun syncOverlaySizesToCard(card: View) {
+        card.viewTreeObserver.addOnGlobalLayoutListener {
+            val glow = glowOverlay
+            val freeze = freezeOverlay
+            if (glow != null) {
+                val p = glow.layoutParams
+                if (p.width != card.width || p.height != card.height) {
+                    p.width = card.width; p.height = card.height; glow.layoutParams = p
+                }
+            }
+            if (freeze != null) {
+                val p = freeze.layoutParams
+                if (p.width != card.width || p.height != card.height) {
+                    p.width = card.width; p.height = card.height; freeze.layoutParams = p
+                }
+            }
+        }
     }
 
     // ---------------------------------------------------------------
     // Lévitation & Effets Visuels
     // ---------------------------------------------------------------
 
-    private fun addFloatingAnimation(target: View, duration: Long = 1800L) {
+    private fun addFloatingAnimation(target: View, duration: Long = floatBaseDuration) {
         val anim = ObjectAnimator.ofFloat(target, "translationY", 0f, -5f, 0f).apply {
             this.duration = duration
             repeatCount = ValueAnimator.INFINITE
@@ -155,9 +181,24 @@ class NyavoInputMethodService : InputMethodService() {
         anim.start()
     }
 
+    private fun rebuildFloatAnimation(card: View, duration: Long) {
+        floatBaseDuration = duration
+        floatAnimators.forEach { it.cancel() }
+        floatAnimators.clear()
+        addFloatingAnimation(card, duration)
+    }
+
     private fun triggerGlowFlash(origin: View) {
         val overlay = glowOverlay ?: return
         if (overlay.width == 0 || overlay.height == 0 || !overlay.isAttachedToWindow) return
+
+        // Anti-saturation : on ignore les flashs trop rapprochés pour ne
+        // pas empiler les animateurs pendant une frappe très rapide, ce
+        // qui pourrait provoquer du jank perçu comme des lettres qui ne
+        // s'affichent pas.
+        val now = System.currentTimeMillis()
+        if (now - lastGlowTimeMs < 60L) return
+        lastGlowTimeMs = now
 
         val originLoc = IntArray(2)
         origin.getLocationOnScreen(originLoc)
@@ -172,12 +213,12 @@ class NyavoInputMethodService : InputMethodService() {
 
         overlay.visibility = View.VISIBLE
         val reveal = ViewAnimationUtils.createCircularReveal(overlay, cx, cy, 0f, finalRadius)
-        reveal.duration = 220L
+        reveal.duration = 200L
         reveal.start()
 
         val fadeRunnable = Runnable { overlay.visibility = View.INVISIBLE }
         glowFadeRunnable = fadeRunnable
-        longPressHandler.postDelayed(fadeRunnable, 220L + 90L)
+        longPressHandler.postDelayed(fadeRunnable, 200L + 80L)
     }
 
     private fun setupPreviewPopup() {
@@ -203,7 +244,6 @@ class NyavoInputMethodService : InputMethodService() {
 
     private fun showPreview(anchor: View, label: String) {
         if (!anchor.isAttachedToWindow) return
-        
         val popup = previewPopup ?: return
         val bubble = previewText ?: return
         bubble.text = label
@@ -230,6 +270,26 @@ class NyavoInputMethodService : InputMethodService() {
         previewPopup?.let { if (it.isShowing) it.dismiss() }
     }
 
+    /**
+     * Positionne un popup (fenêtre flottante) au-dessus de l'ensemble du
+     * clavier, centré horizontalement — utilisé par Vault, l'ajout de
+     * secret, et le boss fight, pour éviter qu'ils ne se superposent au
+     * clavier lui-même.
+     */
+    private fun showPopupAboveKeyboard(popup: PopupWindow, content: View, widthDp: Int) {
+        val root = rootContainer ?: return
+        content.measure(
+            View.MeasureSpec.makeMeasureSpec(dp(widthDp), View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+        )
+        val measuredHeight = content.measuredHeight
+        val loc = IntArray(2)
+        root.getLocationOnScreen(loc)
+        val x = loc[0] + root.width / 2 - dp(widthDp) / 2
+        val y = (loc[1] - measuredHeight - dp(8)).coerceAtLeast(dp(24))
+        popup.showAtLocation(root, Gravity.NO_GRAVITY, x, y)
+    }
+
     // ---------------------------------------------------------------
     // Rendu Global
     // ---------------------------------------------------------------
@@ -247,12 +307,14 @@ class NyavoInputMethodService : InputMethodService() {
         if (state.mode == KeyboardMode.LETTERS) {
             updateShiftButtonStyle()
         }
+        updateComboLabelStyle()
     }
 
     private fun buildLettersView(): View {
         val container = verticalContainer()
         val rows = KeyboardLayoutData.rowsFor(state.layoutType)
 
+        container.addView(buildComboBar())
         container.addView(buildDevRow())
 
         container.addView(buildLetterRow(rows[0], isTopRow = true))
@@ -272,17 +334,190 @@ class NyavoInputMethodService : InputMethodService() {
     }
 
     // ---------------------------------------------------------------
+    // Barre de combo (gamification)
+    // ---------------------------------------------------------------
+
+    private fun buildComboBar(): View {
+        val label = TextView(this).apply {
+            text = "COMBO x0"
+            typeface = sharedTypeface
+            textSize = 13f
+            gravity = Gravity.CENTER
+            setTextColor(ContextCompat.getColor(this@NyavoInputMethodService, R.color.combo_base))
+            setPadding(0, dp(2), 0, dp(2))
+        }
+        comboLabel = label
+        return label
+    }
+
+    private fun updateComboLabelStyle() {
+        val label = comboLabel ?: return
+        label.text = "COMBO x${gameState.comboCount}"
+        val colorRes = when (gameState.tier()) {
+            ComboTier.BASE -> R.color.combo_base
+            ComboTier.GOLD -> R.color.combo_gold
+            ComboTier.FIRE -> R.color.combo_fire
+            ComboTier.NEON -> R.color.combo_neon
+        }
+        label.setTextColor(ContextCompat.getColor(this, colorRes))
+    }
+
+    private fun onSuccessfulKeystroke() {
+        val now = System.currentTimeMillis()
+        gameState.registerKeystroke(now)
+        updateComboLabelStyle()
+
+        val card = rootContainer
+        when (gameState.tier()) {
+            ComboTier.NEON -> {
+                if (card != null && floatBaseDuration != 900L) rebuildFloatAnimation(card, 900L)
+                vibrateStrong()
+            }
+            ComboTier.FIRE -> {
+                if (card != null && floatBaseDuration != 1300L) rebuildFloatAnimation(card, 1300L)
+            }
+            else -> {
+                if (card != null && floatBaseDuration != 1800L) rebuildFloatAnimation(card, 1800L)
+            }
+        }
+
+        if (gameState.shouldTriggerBoss()) {
+            startBossFight()
+        }
+    }
+
+    private fun breakComboWithFeedback() {
+        gameState.breakCombo()
+        updateComboLabelStyle()
+        val card = rootContainer
+        if (card != null && floatBaseDuration != 1800L) rebuildFloatAnimation(card, 1800L)
+        vibrateStrong()
+        shakeCard()
+    }
+
+    private fun vibrateStrong() {
+        val vibrator = getSystemService(VIBRATOR_SERVICE) as? Vibrator ?: return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            vibrator.vibrate(VibrationEffect.createOneShot(60L, VibrationEffect.DEFAULT_AMPLITUDE))
+        }
+    }
+
+    private fun shakeCard() {
+        val card = rootContainer ?: return
+        card.animate().cancel()
+        val amplitude = dp(6).toFloat()
+        card.animate()
+            .translationX(amplitude)
+            .setDuration(40L)
+            .withEndAction {
+                card.animate().translationX(-amplitude).setDuration(40L).withEndAction {
+                    card.animate().translationX(amplitude / 2).setDuration(40L).withEndAction {
+                        card.animate().translationX(0f).setDuration(40L).start()
+                    }.start()
+                }.start()
+            }
+            .start()
+    }
+
+    // ---------------------------------------------------------------
+    // Boss Fight
+    // ---------------------------------------------------------------
+
+    private fun startBossFight() {
+        val word = gameState.startBoss()
+        freezeKeyboard(false)
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+            background = ContextCompat.getDrawable(this@NyavoInputMethodService, R.drawable.keyboard_card_bg)
+        }
+        val title = TextView(this).apply {
+            text = "⚔ BOSS : tape ce mot en 5s"
+            textSize = 14f
+            typeface = sharedTypeface
+            setTextColor(ContextCompat.getColor(this@NyavoInputMethodService, R.color.combo_fire))
+            gravity = Gravity.CENTER
+        }
+        val wordLabel = TextView(this).apply {
+            text = word
+            textSize = 20f
+            typeface = sharedTypeface
+            setTextColor(ContextCompat.getColor(this@NyavoInputMethodService, R.color.key_text))
+            gravity = Gravity.CENTER
+            setPadding(0, dp(8), 0, 0)
+            letterSpacing = 0.15f
+        }
+        bossProgressLabel = wordLabel
+        container.addView(title)
+        container.addView(wordLabel)
+
+        val popup = PopupWindow(container, dp(280), LinearLayout.LayoutParams.WRAP_CONTENT, false).apply {
+            isOutsideTouchable = false
+            isTouchable = false
+            setBackgroundDrawable(null)
+        }
+        showPopupAboveKeyboard(popup, container, 280)
+        bossPopup = popup
+
+        longPressHandler.postDelayed({
+            if (gameState.bossActive) {
+                onBossFail()
+            }
+        }, 5000L)
+    }
+
+    private fun updateBossProgressDisplay() {
+        val label = bossProgressLabel ?: return
+        val word = gameState.bossWord
+        val progress = gameState.bossProgress
+        val done = word.take(progress)
+        val remaining = word.drop(progress)
+        label.text = "$done$remaining"
+    }
+
+    private fun onBossSuccess() {
+        gameState.endBoss()
+        dismissBossPopup()
+        gameState.addComboBonus(50)
+        updateComboLabelStyle()
+        rootContainer?.let { triggerGlowFlash(it) }
+    }
+
+    private fun onBossFail() {
+        gameState.endBoss()
+        dismissBossPopup()
+        breakComboWithFeedback()
+        freezeKeyboard(true)
+        longPressHandler.postDelayed({ freezeKeyboard(false) }, 2000L)
+    }
+
+    private fun dismissBossPopup() {
+        bossPopup?.dismiss()
+        bossPopup = null
+        bossProgressLabel = null
+    }
+
+    private fun freezeKeyboard(frozen: Boolean) {
+        isKeyboardFrozen = frozen
+        freezeOverlay?.apply {
+            visibility = if (frozen) View.VISIBLE else View.GONE
+            isClickable = frozen
+        }
+    }
+
+    // ---------------------------------------------------------------
     // Barre d'outils Développeur
     // ---------------------------------------------------------------
 
     private fun buildDevRow(): View {
         val row = horizontalRow()
 
-        row.addView(makeKeyButton("✂️", 0.9f, heightDp = 34, isSpecial = true, hapticFeedback = -1) { 
-            handleEditAction(android.R.id.cut) 
+        row.addView(makeKeyButton("✂️", 0.9f, heightDp = 34, isSpecial = true, hapticFeedback = -1) {
+            handleEditAction(android.R.id.cut)
         })
-        row.addView(makeKeyButton("📋", 0.9f, heightDp = 34, isSpecial = true, hapticFeedback = -1) { 
-            handleEditAction(android.R.id.paste) 
+        row.addView(makeKeyButton("📋", 0.9f, heightDp = 34, isSpecial = true, hapticFeedback = -1) {
+            handleEditAction(android.R.id.paste)
         })
 
         val devSymbols = listOf("{", "}", "[", "]", "(", ")", ";", "=")
@@ -292,8 +527,8 @@ class NyavoInputMethodService : InputMethodService() {
             })
         }
 
-        row.addView(makeKeyButton("ALL", 1.1f, heightDp = 34, isSpecial = true, textSizeSp = 11f, hapticFeedback = -1) { 
-            handleEditAction(android.R.id.selectAll) 
+        row.addView(makeKeyButton("ALL", 1.1f, heightDp = 34, isSpecial = true, textSizeSp = 11f, hapticFeedback = -1) {
+            handleEditAction(android.R.id.selectAll)
         })
 
         if (isPasswordField()) {
@@ -307,7 +542,6 @@ class NyavoInputMethodService : InputMethodService() {
 
     private fun handleDevSymbolTap(symbol: String) {
         val ic = currentInputConnection ?: return
-        
         when (symbol) {
             "{" -> { ic.commitText("{}", 1); moveCursor(KeyEvent.KEYCODE_DPAD_LEFT) }
             "[" -> { ic.commitText("[]", 1); moveCursor(KeyEvent.KEYCODE_DPAD_LEFT) }
@@ -321,13 +555,13 @@ class NyavoInputMethodService : InputMethodService() {
     }
 
     // ---------------------------------------------------------------
-    // Rangées Standard & Logique des touches
+    // Rangées Standard
     // ---------------------------------------------------------------
 
     private fun buildLetterRow(letters: List<String>, isTopRow: Boolean = false): View {
         val row = horizontalRow()
         letters.forEachIndexed { index, letter ->
-            row.addView(makeLetterButton(letter, if (isTopRow) index else null))
+            row.addView(makeLetterKey(letter, if (isTopRow) index else null))
         }
         return row
     }
@@ -358,7 +592,7 @@ class NyavoInputMethodService : InputMethodService() {
         row.addView(shift)
 
         for (letter in letters) {
-            row.addView(makeLetterButton(letter, null))
+            row.addView(makeLetterKey(letter, null))
         }
 
         row.addView(makeKeyButton("⌫", 1.6f, isSpecial = true, textSizeSp = bigTextSizeSp, hapticFeedback = HapticFeedbackConstants.REJECT) { handleBackspace() })
@@ -409,7 +643,7 @@ class NyavoInputMethodService : InputMethodService() {
     }
 
     // ---------------------------------------------------------------
-    // Comportements Gestuels (Espace & Curseur)
+    // Barre d'espace
     // ---------------------------------------------------------------
 
     private fun makeSpaceButton(weight: Float): Button {
@@ -450,6 +684,7 @@ class NyavoInputMethodService : InputMethodService() {
         }
 
         button.setOnTouchListener { view, event ->
+            if (isKeyboardFrozen) return@setOnTouchListener true
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
                     cursorModeActive = false
@@ -474,9 +709,11 @@ class NyavoInputMethodService : InputMethodService() {
                     if (cursorModeActive) {
                         button.setBackgroundResource(R.drawable.key_bg_special)
                     } else {
-                        view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
-                        triggerGlowFlash(view)
                         handleSpace()
+                        view.post {
+                            view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                            triggerGlowFlash(view)
+                        }
                     }
                     cursorModeActive = false
                     true
@@ -502,6 +739,7 @@ class NyavoInputMethodService : InputMethodService() {
         }
 
         button.setOnTouchListener { view, event ->
+            if (isKeyboardFrozen) return@setOnTouchListener true
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
                     vaultTriggered = false
@@ -513,9 +751,11 @@ class NyavoInputMethodService : InputMethodService() {
                     longPressHandler.removeCallbacks(vaultRunnable)
                     view.isPressed = false
                     if (!vaultTriggered) {
-                        view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-                        triggerGlowFlash(view)
                         handleShiftTap()
+                        view.post {
+                            view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                            triggerGlowFlash(view)
+                        }
                     }
                     vaultTriggered = false
                     true
@@ -561,52 +801,120 @@ class NyavoInputMethodService : InputMethodService() {
         ic.sendKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_UP, keyCode, 0))
     }
 
-    private fun makeLetterButton(letter: String, topRowIndex: Int?): Button {
-        val button = Button(this).apply {
+    // ---------------------------------------------------------------
+    // Touche lettre composite : label principal + indicateurs de coin
+    // (symbole en bas-droite, chiffre en haut-droite pour la rangée du
+    // haut) — répond à la demande de rendre visibles les caractères
+    // accessibles par appui long.
+    // ---------------------------------------------------------------
+
+    private fun makeLetterKey(letter: String, topRowIndex: Int?): View {
+        val container = FrameLayout(this).apply {
+            setBackgroundResource(R.drawable.key_bg_normal)
+            isHapticFeedbackEnabled = true
+        }
+
+        val mainLabel = TextView(this).apply {
             text = letter.uppercase()
-            isAllCaps = false
-            gravity = Gravity.CENTER
-            setPadding(0, 0, 0, 0)
-            minWidth = 0; minHeight = 0; minimumWidth = 0; minimumHeight = 0
-            includeFontPadding = false
-            stateListAnimator = null
-            elevation = 0f
             typeface = sharedTypeface
             setTextColor(ContextCompat.getColor(this@NyavoInputMethodService, R.color.key_text))
             setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, normalTextSizeSp)
-            setBackgroundResource(R.drawable.key_bg_normal)
-            isHapticFeedbackEnabled = true
+            includeFontPadding = false
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.CENTER
+            )
+        }
+        container.addView(mainLabel)
+
+        val symbol = LongPressSymbols.symbolFor(letter)
+        if (symbol != null) {
+            val symbolLabel = TextView(this).apply {
+                text = symbol
+                typeface = sharedTypeface
+                setTextColor(ContextCompat.getColor(this@NyavoInputMethodService, R.color.key_corner_text))
+                setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, cornerTextSizeSp)
+                includeFontPadding = false
+                layoutParams = FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                    Gravity.BOTTOM or Gravity.END
+                ).apply { setMargins(0, 0, dp(3), dp(2)) }
+            }
+            container.addView(symbolLabel)
+        }
+
+        if (topRowIndex != null) {
+            val numberLabel = TextView(this).apply {
+                text = topRowDigits[topRowIndex]
+                typeface = sharedTypeface
+                setTextColor(ContextCompat.getColor(this@NyavoInputMethodService, R.color.key_corner_text))
+                setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, cornerTextSizeSp)
+                includeFontPadding = false
+                layoutParams = FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                    Gravity.TOP or Gravity.END
+                ).apply { setMargins(0, dp(1), dp(3), 0) }
+            }
+            container.addView(numberLabel)
         }
 
         val params = LinearLayout.LayoutParams(0, dp(standardKeyHeightDp), 1f).apply {
             setMargins(dp(1), dp(1), dp(1), dp(1))
         }
-        button.layoutParams = params
+        container.layoutParams = params
 
-        attachLetterKeyBehavior(button, letter, topRowIndex)
-        return button
+        attachLetterKeyBehavior(container, letter, topRowIndex)
+        return container
     }
 
-    private fun attachLetterKeyBehavior(button: Button, letter: String, topRowIndex: Int?) {
+    /**
+     * Stratégie anti-perte de frappe : le texte est committé en tout
+     * premier sur ACTION_DOWN, avant tout effet secondaire (vibration,
+     * flash, bulle d'aperçu), qui sont eux différés via view.post pour
+     * ne jamais retarder la réception du prochain événement tactile.
+     * Sous 90ms depuis la dernière frappe, on saute même les effets non
+     * essentiels pour rester fluide en frappe très rapide.
+     */
+    private fun attachLetterKeyBehavior(container: FrameLayout, letter: String, topRowIndex: Int?) {
         var longPressTriggered = false
 
         val longPressRunnable = Runnable {
             longPressTriggered = true
             dismissPreview()
             currentInputConnection?.deleteSurroundingText(1, 0)
-            button.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-            showSymbolPopup(button, letter, topRowIndex)
+            container.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+            showSymbolPopup(container, letter, topRowIndex)
         }
 
-        button.setOnTouchListener { view, event ->
+        container.setOnTouchListener { view, event ->
+            if (isKeyboardFrozen) return@setOnTouchListener true
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
                     longPressTriggered = false
                     view.isPressed = true
-                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                    triggerGlowFlash(view)
-                    showPreview(view, letter.uppercase())
-                    handleLetterTap(letter)
+
+                    val now = System.currentTimeMillis()
+                    val fastTyping = (now - lastKeystrokeTimeMs) < 90L
+                    lastKeystrokeTimeMs = now
+
+                    if (gameState.bossActive) {
+                        handleBossKeystroke(letter)
+                    } else {
+                        handleLetterTap(letter)
+                        onSuccessfulKeystroke()
+                    }
+
+                    if (!fastTyping) {
+                        view.post {
+                            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                            triggerGlowFlash(view)
+                            showPreview(view, letter.uppercase())
+                        }
+                    }
+
                     longPressHandler.postDelayed(longPressRunnable, longPressDelayMs)
                     true
                 }
@@ -635,11 +943,19 @@ class NyavoInputMethodService : InputMethodService() {
         }
     }
 
+    private fun handleBossKeystroke(letter: String) {
+        when (gameState.submitBossLetter(letter)) {
+            BossResult.SUCCESS -> { updateBossProgressDisplay(); onBossSuccess() }
+            BossResult.FAIL -> onBossFail()
+            BossResult.CONTINUE -> updateBossProgressDisplay()
+        }
+    }
+
     // ---------------------------------------------------------------
-    // Popups de caractères étendus
+    // Popup symbole / chiffre
     // ---------------------------------------------------------------
 
-    private fun showSymbolPopup(anchor: Button, letter: String, topRowIndex: Int?) {
+    private fun showSymbolPopup(anchor: View, letter: String, topRowIndex: Int?) {
         dismissPopup()
 
         val symbol = LongPressSymbols.symbolFor(letter) ?: return
@@ -760,6 +1076,17 @@ class NyavoInputMethodService : InputMethodService() {
         } else {
             ic.deleteSurroundingText(1, 0)
         }
+        breakComboWithFeedbackIfBackspaceSpams()
+    }
+
+    private var lastBackspaceTimeMs = 0L
+    private fun breakComboWithFeedbackIfBackspaceSpams() {
+        val now = System.currentTimeMillis()
+        if (now - lastBackspaceTimeMs < 400L && gameState.comboCount > 0) {
+            gameState.breakCombo()
+            updateComboLabelStyle()
+        }
+        lastBackspaceTimeMs = now
     }
 
     private fun handleEnter() {
@@ -810,7 +1137,6 @@ class NyavoInputMethodService : InputMethodService() {
         val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
         if (!keyStore.containsAlias(vaultKeyAlias)) {
             KeyGenerator.getInstance("AES", "AndroidKeyStore").apply {
-                // CORRECTION : KeyProperties.PURPOSE_ENCRYPT/DECRYPT (pas KeyStore.Purpose)
                 init(KeyGenParameterSpec.Builder(vaultKeyAlias, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
                     .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
                     .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
@@ -926,15 +1252,12 @@ class NyavoInputMethodService : InputMethodService() {
         }
         container.addView(addBtn)
 
-        container.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
         val popup = PopupWindow(container, dp(300), LinearLayout.LayoutParams.WRAP_CONTENT, true).apply {
             isOutsideTouchable = true
             isTouchable = true
             setBackgroundDrawable(null)
         }
-
-        val root = rootContainer ?: return
-        popup.showAtLocation(root, Gravity.CENTER, 0, 0)
+        showPopupAboveKeyboard(popup, container, 300)
         vaultPopup = popup
     }
 
@@ -1033,15 +1356,12 @@ class NyavoInputMethodService : InputMethodService() {
         btnRow.addView(cancelBtn)
         container.addView(btnRow)
 
-        container.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
         val popup = PopupWindow(container, dp(300), LinearLayout.LayoutParams.WRAP_CONTENT, true).apply {
             isOutsideTouchable = true
             isTouchable = true
             setBackgroundDrawable(null)
         }
-
-        val root = rootContainer ?: return
-        popup.showAtLocation(root, Gravity.CENTER, 0, 0)
+        showPopupAboveKeyboard(popup, container, 300)
         addCredentialPopup = popup
     }
 
@@ -1095,11 +1415,14 @@ class NyavoInputMethodService : InputMethodService() {
         button.layoutParams = params
 
         button.setOnClickListener {
-            if (hapticFeedback != -1) {
-                it.performHapticFeedback(hapticFeedback)
-            }
-            triggerGlowFlash(it)
+            if (isKeyboardFrozen) return@setOnClickListener
             onClick()
+            it.post {
+                if (hapticFeedback != -1) {
+                    it.performHapticFeedback(hapticFeedback)
+                }
+                triggerGlowFlash(it)
+            }
         }
         return button
     }
