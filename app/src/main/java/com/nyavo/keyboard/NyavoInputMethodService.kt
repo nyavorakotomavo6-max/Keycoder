@@ -2,6 +2,7 @@ package com.nyavo.keyboard
 
 import android.animation.ObjectAnimator
 import android.animation.ValueAnimator
+import android.app.AlertDialog
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
@@ -20,6 +21,8 @@ import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewAnimationUtils
+import android.view.ViewTreeObserver
+import android.view.WindowManager
 import android.view.animation.AccelerateDecelerateInterpolator
 import android.view.inputmethod.EditorInfo
 import android.widget.Button
@@ -80,7 +83,6 @@ class NyavoInputMethodService : InputMethodService() {
     private val vaultPrefs by lazy { getSharedPreferences("nyavo_vault", MODE_PRIVATE) }
     private val vaultKeyAlias = "nyavo_vault_aes_key"
     private var vaultPopup: PopupWindow? = null
-    private var addCredentialPopup: PopupWindow? = null
     private val vaultLongPressMs = 3000L
     // =================================
 
@@ -133,7 +135,6 @@ class NyavoInputMethodService : InputMethodService() {
         dismissPopup()
         dismissPreview()
         dismissVaultPopup()
-        dismissAddCredentialPopup()
         dismissBossPopup()
         longPressHandler.removeCallbacksAndMessages(null)
     }
@@ -145,17 +146,10 @@ class NyavoInputMethodService : InputMethodService() {
         dismissPopup()
         dismissPreview()
         dismissVaultPopup()
-        dismissAddCredentialPopup()
         dismissBossPopup()
         longPressHandler.removeCallbacksAndMessages(null)
     }
 
-    /**
-     * Cale la taille des calques (lueur, gel) exactement sur celle de la
-     * carte du clavier, par code plutôt qu'en XML match_parent, pour
-     * éviter que la fenêtre entière du clavier ne s'étende à tout
-     * l'écran (ce qui poussait la barre d'envoi des autres apps).
-     */
     private fun syncOverlaySizesToCard(card: View) {
         card.viewTreeObserver.addOnGlobalLayoutListener {
             val glow = glowOverlay
@@ -275,11 +269,7 @@ class NyavoInputMethodService : InputMethodService() {
     }
 
     /**
-     * Positionne un popup (fenêtre flottante) au-dessus de l'ensemble du
-     * clavier, centré horizontalement — utilisé par Vault, l'ajout de
-     * secret, et le boss fight, pour éviter qu'ils ne se superposent au
-     * clavier lui-même.
-     *
+     * Positionne un popup centré horizontalement au-dessus du clavier.
      * showAtLocation attend des coordonnées relatives à la fenêtre du
      * clavier : on utilise getLocationInWindow().
      */
@@ -817,7 +807,7 @@ class NyavoInputMethodService : InputMethodService() {
     }
 
     // ---------------------------------------------------------------
-    // Touche lettre composite : label principal + indicateurs de coin
+    // Touche lettre composite
     // ---------------------------------------------------------------
 
     private fun makeLetterKey(letter: String, topRowIndex: Int?): View {
@@ -1170,7 +1160,6 @@ class NyavoInputMethodService : InputMethodService() {
 
     private fun showVaultPopup() {
         dismissVaultPopup()
-        dismissAddCredentialPopup()
 
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -1259,9 +1248,9 @@ class NyavoInputMethodService : InputMethodService() {
         val popup = PopupWindow(container, dp(300), LinearLayout.LayoutParams.WRAP_CONTENT, true).apply {
             isOutsideTouchable = true
             isTouchable = true
-            // CORRECTION : background transparent pour délimiter correctement
-            // la zone "intérieure" du popup. Sans cela, Android considère
-            // parfois les clics sur les boutons comme des touches "outside".
+            // Background transparent pour délimiter correctement la zone
+            // intérieure et éviter que les clics sur les boutons soient
+            // traités comme des "outside touches".
             setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
         }
         showPopupAboveKeyboard(popup, container, 300)
@@ -1273,6 +1262,13 @@ class NyavoInputMethodService : InputMethodService() {
         vaultPopup = null
     }
 
+    /**
+     * CORRECTION : remplacé le PopupWindow par un AlertDialog.
+     * Les PopupWindow contenant des EditText dans un InputMethodService
+     * sont instables (conflit de focus IME qui fait disparaître le popup
+     * au moindre clic dans un champ). AlertDialog gère correctement les
+     * champs texte avec sa propre fenêtre.
+     */
     private fun showAddCredentialDialog() {
         dismissVaultPopup()
 
@@ -1330,15 +1326,6 @@ class NyavoInputMethodService : InputMethodService() {
             layoutParams = LinearLayout.LayoutParams(0, dp(42), 1f).apply {
                 setMargins(0, 0, dp(4), 0)
             }
-            setOnClickListener {
-                val alias = inputAlias.text.toString().trim()
-                val pass = inputPass.text.toString()
-                if (alias.isNotEmpty() && pass.isNotEmpty()) {
-                    vaultPrefs.edit().putString(alias, encryptVault(pass)).apply()
-                    dismissAddCredentialPopup()
-                    showVaultPopup()
-                }
-            }
         }
 
         val cancelBtn = Button(this).apply {
@@ -1356,26 +1343,36 @@ class NyavoInputMethodService : InputMethodService() {
             layoutParams = LinearLayout.LayoutParams(0, dp(42), 1f).apply {
                 setMargins(dp(4), 0, 0, 0)
             }
-            setOnClickListener { dismissAddCredentialPopup() }
         }
 
         btnRow.addView(saveBtn)
         btnRow.addView(cancelBtn)
         container.addView(btnRow)
 
-        val popup = PopupWindow(container, dp(300), LinearLayout.LayoutParams.WRAP_CONTENT, true).apply {
-            isOutsideTouchable = true
-            isTouchable = true
-            // Même correction que pour le vault
-            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
-        }
-        showPopupAboveKeyboard(popup, container, 300)
-        addCredentialPopup = popup
-    }
+        val dialog = AlertDialog.Builder(this)
+            .setView(container)
+            .create()
 
-    private fun dismissAddCredentialPopup() {
-        addCredentialPopup?.dismiss()
-        addCredentialPopup = null
+        saveBtn.setOnClickListener {
+            val alias = inputAlias.text.toString().trim()
+            val pass = inputPass.text.toString()
+            if (alias.isNotEmpty() && pass.isNotEmpty()) {
+                vaultPrefs.edit().putString(alias, encryptVault(pass)).apply()
+                dialog.dismiss()
+                showVaultPopup()
+            }
+        }
+
+        cancelBtn.setOnClickListener {
+            dialog.dismiss()
+        }
+
+        // Nécessaire pour qu'un dialog puisse s'afficher depuis un IME
+        dialog.window?.setType(WindowManager.LayoutParams.TYPE_APPLICATION_ATTACHED_DIALOG)
+        dialog.window?.setToken(window?.window?.decorView?.windowToken)
+        dialog.window?.setBackgroundDrawable(ContextCompat.getDrawable(this, R.drawable.keyboard_card_bg))
+
+        dialog.show()
     }
 
     // ---------------------------------------------------------------
@@ -1391,19 +1388,42 @@ class NyavoInputMethodService : InputMethodService() {
             setTextColor(ContextCompat.getColor(this@NyavoInputMethodService, R.color.combo_fire))
             background = ContextCompat.getDrawable(this@NyavoInputMethodService, R.drawable.key_bg_special)
             setPadding(dp(10), dp(6), dp(10), dp(6))
-            layoutParams = FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                gravity = Gravity.TOP or Gravity.END
-                setMargins(0, dp(8), dp(8), 0)
-            }
-            setOnClickListener { toggleBossEnabled() }
         }
-        root.addView(btn)
+
+        val params = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT
+        )
+        btn.layoutParams = params
+        root.addView(btn, 0)
         bossToggleButton = btn
-        // Lévitation indépendante avec une durée différente du clavier
-        // pour ne pas être synchronisée
+
+        val card = rootContainer ?: return
+        card.viewTreeObserver.addOnGlobalLayoutListener(object : ViewTreeObserver.OnGlobalLayoutListener {
+            override fun onGlobalLayout() {
+                if (card.height == 0 || btn.height == 0) return
+
+                // Centré horizontalement
+                btn.x = (root.width - btn.width) / 2f
+                // Juste au-dessus du clavier avec 8dp (≈ 2mm) d'espace
+                val targetY = card.y - btn.height - dp(8)
+
+                if (targetY < 0) {
+                    // Pas assez de place : agrandir le FrameLayout vers le haut
+                    // avec du padding et positionner le bouton en haut
+                    val needed = (-targetY).toInt() + dp(8)
+                    root.setPadding(root.paddingLeft, needed, root.paddingRight, root.paddingBottom)
+                    btn.y = dp(8).toFloat()
+                } else {
+                    btn.y = targetY
+                }
+
+                if (card.viewTreeObserver.isAlive) {
+                    card.viewTreeObserver.removeOnGlobalLayoutListener(this)
+                }
+            }
+        })
+
         addFloatingAnimation(btn, 2100L)
         updateBossToggleAppearance()
     }
