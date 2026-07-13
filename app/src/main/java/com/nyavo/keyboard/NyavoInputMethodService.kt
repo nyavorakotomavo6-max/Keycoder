@@ -99,14 +99,6 @@ class NyavoInputMethodService : InputMethodService() {
 
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
-
-        // CORRECTION : setLayout n'existe pas, utiliser attributes directement
-        window?.window?.attributes?.let { lp ->
-            lp.width = ViewGroup.LayoutParams.MATCH_PARENT
-            lp.height = ViewGroup.LayoutParams.WRAP_CONTENT
-            window?.window?.attributes = lp
-        }
-
         floatAnimators.forEach { if (!it.isRunning) it.start() }
     }
 
