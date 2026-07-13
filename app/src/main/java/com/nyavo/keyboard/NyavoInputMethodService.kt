@@ -268,11 +268,6 @@ class NyavoInputMethodService : InputMethodService() {
         previewPopup?.let { if (it.isShowing) it.dismiss() }
     }
 
-    /**
-     * Positionne un popup centré horizontalement au-dessus du clavier.
-     * showAtLocation attend des coordonnées relatives à la fenêtre du
-     * clavier : on utilise getLocationInWindow().
-     */
     private fun showPopupAboveKeyboard(popup: PopupWindow, content: View, widthDp: Int) {
         val root = rootContainer ?: return
         content.measure(
@@ -1248,9 +1243,6 @@ class NyavoInputMethodService : InputMethodService() {
         val popup = PopupWindow(container, dp(300), LinearLayout.LayoutParams.WRAP_CONTENT, true).apply {
             isOutsideTouchable = true
             isTouchable = true
-            // Background transparent pour délimiter correctement la zone
-            // intérieure et éviter que les clics sur les boutons soient
-            // traités comme des "outside touches".
             setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
         }
         showPopupAboveKeyboard(popup, container, 300)
@@ -1265,9 +1257,11 @@ class NyavoInputMethodService : InputMethodService() {
     /**
      * CORRECTION : remplacé le PopupWindow par un AlertDialog.
      * Les PopupWindow contenant des EditText dans un InputMethodService
-     * sont instables (conflit de focus IME qui fait disparaître le popup
-     * au moindre clic dans un champ). AlertDialog gère correctement les
-     * champs texte avec sa propre fenêtre.
+     * sont instables (conflit de focus IME). AlertDialog gère correctement
+     * les champs texte avec sa propre fenêtre.
+     *
+     * CORRECTION COMPILE : suppression de setToken() qui n'existe pas sur
+     * Window. On passe le token via les attributs de la fenêtre du dialog.
      */
     private fun showAddCredentialDialog() {
         dismissVaultPopup()
@@ -1367,10 +1361,14 @@ class NyavoInputMethodService : InputMethodService() {
             dialog.dismiss()
         }
 
-        // Nécessaire pour qu'un dialog puisse s'afficher depuis un IME
-        dialog.window?.setType(WindowManager.LayoutParams.TYPE_APPLICATION_ATTACHED_DIALOG)
-        dialog.window?.setToken(window?.window?.decorView?.windowToken)
-        dialog.window?.setBackgroundDrawable(ContextCompat.getDrawable(this, R.drawable.keyboard_card_bg))
+        // Afficher le dialog depuis un IME : TYPE_APPLICATION_ATTACHED_DIALOG
+        // avec le token de la fenêtre du clavier passé via les attributs.
+        dialog.window?.let { window ->
+            window.setType(WindowManager.LayoutParams.TYPE_APPLICATION_ATTACHED_DIALOG)
+            window.attributes.token = windowToken
+            window.addFlags(WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM)
+            window.setBackgroundDrawable(ContextCompat.getDrawable(this, R.drawable.keyboard_card_bg))
+        }
 
         dialog.show()
     }
@@ -1403,14 +1401,10 @@ class NyavoInputMethodService : InputMethodService() {
             override fun onGlobalLayout() {
                 if (card.height == 0 || btn.height == 0) return
 
-                // Centré horizontalement
                 btn.x = (root.width - btn.width) / 2f
-                // Juste au-dessus du clavier avec 8dp (≈ 2mm) d'espace
                 val targetY = card.y - btn.height - dp(8)
 
                 if (targetY < 0) {
-                    // Pas assez de place : agrandir le FrameLayout vers le haut
-                    // avec du padding et positionner le bouton en haut
                     val needed = (-targetY).toInt() + dp(8)
                     root.setPadding(root.paddingLeft, needed, root.paddingRight, root.paddingBottom)
                     btn.y = dp(8).toFloat()
