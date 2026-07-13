@@ -25,4 +25,13 @@
         android:clickable="false"
         android:focusable="false" />
 
+    <View
+        android:id="@+id/keyboard_freeze_overlay"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:background="@color/freeze_tint"
+        android:visibility="gone"
+        android:clickable="false"
+        android:focusable="false" />
+
 </FrameLayout>
