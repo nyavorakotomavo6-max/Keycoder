@@ -1,25 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
-<FrameLayout
-    xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/keyboard_root"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_gravity="bottom"
-    android:background="@android:color/transparent">
+    android:background="@android:color/transparent"
+    android:clipChildren="false"
+    android:clipToPadding="false"
+    android:padding="3dp">
 
-    <View
-        android:id="@+id/keyboard_glow_overlay"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:background="@android:color/transparent"
-        android:visibility="invisible" />
-
-    <!-- Fond opaque noir (ou remplace par @drawable/keyboard_card_bg si tu l'as) -->
     <LinearLayout
         android:id="@+id/keyboard_card"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:layout_gravity="bottom"
-        android:background="#FF1A1A1A" />
+        android:background="@drawable/keyboard_card_bg"
+        android:padding="2dp" />
+
+    <View
+        android:id="@+id/keyboard_glow_overlay"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:background="@color/glow_flash"
+        android:visibility="invisible"
+        android:clickable="false"
+        android:focusable="false" />
 
 </FrameLayout>
