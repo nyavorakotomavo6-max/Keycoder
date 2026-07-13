@@ -275,6 +275,10 @@ class NyavoInputMethodService : InputMethodService() {
      * clavier, centré horizontalement — utilisé par Vault, l'ajout de
      * secret, et le boss fight, pour éviter qu'ils ne se superposent au
      * clavier lui-même.
+     *
+     * CORRECTION : utilisation de showAsDropDown avec offset négatif en Y
+     * pour un positionnement fiable par rapport à la carte du clavier,
+     * sans décalage dû aux coordonnées fenêtre/écran.
      */
     private fun showPopupAboveKeyboard(popup: PopupWindow, content: View, widthDp: Int) {
         val root = rootContainer ?: return
@@ -282,12 +286,15 @@ class NyavoInputMethodService : InputMethodService() {
             View.MeasureSpec.makeMeasureSpec(dp(widthDp), View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
         )
+        val measuredWidth = content.measuredWidth
         val measuredHeight = content.measuredHeight
-        val loc = IntArray(2)
-        root.getLocationOnScreen(loc)
-        val x = loc[0] + root.width / 2 - dp(widthDp) / 2
-        val y = (loc[1] - measuredHeight - dp(8)).coerceAtLeast(dp(24))
-        popup.showAtLocation(root, Gravity.NO_GRAVITY, x, y)
+
+        popup.width = measuredWidth
+        popup.height = measuredHeight
+
+        val xoff = (root.width - measuredWidth) / 2
+        val yoff = -measuredHeight - dp(8)
+        popup.showAsDropDown(root, xoff, yoff)
     }
 
     // ---------------------------------------------------------------
