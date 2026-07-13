@@ -82,7 +82,7 @@ class NyavoInputMethodService : InputMethodService() {
         state = KeyboardState(this)
     }
 
-    override fun onCreateInputView(): View {
+   override fun onCreateInputView(): View {
         floatAnimators.forEach { it.cancel() }
         floatAnimators.clear()
 
@@ -94,9 +94,27 @@ class NyavoInputMethodService : InputMethodService() {
         render()
         addFloatingAnimation(card)
         setupPreviewPopup()
+        syncGlowOverlaySizeToCard(card)
         return root
     }
-
+/**
+     * Cale la taille du calque de lueur exactement sur celle de la carte
+     * du clavier, à chaque changement de layout (ex: passage Lettres <->
+     * Emoji, qui change la hauteur totale). Fait par code plutôt qu'en
+     * XML avec match_parent pour éviter l'ambiguïté de mesure qui
+     * poussait la fenêtre entière du clavier à occuper tout l'écran.
+     */
+    private fun syncGlowOverlaySizeToCard(card: View) {
+        card.viewTreeObserver.addOnGlobalLayoutListener {
+            val overlay = glowOverlay ?: return@addOnGlobalLayoutListener
+            val params = overlay.layoutParams
+            if (params.width != card.width || params.height != card.height) {
+                params.width = card.width
+                params.height = card.height
+                overlay.layoutParams = params
+            }
+        }
+    }
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
         floatAnimators.forEach { if (!it.isRunning) it.start() }
