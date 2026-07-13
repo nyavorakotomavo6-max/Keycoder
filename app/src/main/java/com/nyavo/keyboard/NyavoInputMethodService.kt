@@ -79,11 +79,6 @@ class NyavoInputMethodService : InputMethodService() {
 
     private val cursorStepThresholdPx get() = dp(24)
 
-    //GlowTimeMs = 0L
-    private var lastKeystrokeTimeMs = 0L
-
-    private val cursorStepThresholdPx get() = dp(24)
-
     // ========== VAULT MODE ==========
     private val vaultPrefs by lazy { getSharedPreferences("nyavo_vault", MODE_PRIVATE) }
     private val vaultKeyAlias = "nyavo_vault_aes_key"
@@ -1268,13 +1263,12 @@ class NyavoInputMethodService : InputMethodService() {
     }
 
     /**
-     * CORRECTION CRITIQUE : Utilisation d'un AlertDialog au lieu de
-     * PopupWindow pour le formulaire d'ajout. Les PopupWindow avec
-     * EditText dans un InputMethodService sont instables car Android
-     * gère mal le focus IME entre le clavier et le popup.
+     * CORRECTION : Utilisation d'un AlertDialog au lieu de PopupWindow
+     * pour le formulaire d'ajout. Les PopupWindow avec EditText dans un
+     * InputMethodService sont instables (conflit de focus IME).
      *
      * Le dialog utilise TYPE_APPLICATION_ATTACHED_DIALOG avec le token
-     * de la fenêtre du service IME pour s'afficher correctement.
+     * de la fenêtre du service IME.
      */
     private fun showAddCredentialDialog() {
         dismissVaultPopup()
@@ -1374,11 +1368,10 @@ class NyavoInputMethodService : InputMethodService() {
             dialog.dismiss()
         }
 
-        // Configuration de la fenêtre du dialog pour qu'elle s'affiche
-        // depuis un InputMethodService
+        // Configuration de la fenêtre du dialog pour un IME
         dialog.window?.let { dialogWindow ->
             dialogWindow.setType(WindowManager.LayoutParams.TYPE_APPLICATION_ATTACHED_DIALOG)
-            // Récupérer le token de la fenêtre du service IME
+            // CORRECTION : utiliser window (le DialogWindow du service) puis decorView
             val imeWindow = window
             if (imeWindow != null) {
                 dialogWindow.attributes.token = imeWindow.decorView.windowToken
@@ -1397,8 +1390,6 @@ class NyavoInputMethodService : InputMethodService() {
     /**
      * Crée le bouton toggle boss et le positionne au-dessus du clavier,
      * centré horizontalement, avec un espace de 8dp (≈ 2mm).
-     * Le bouton est ajouté au FrameLayout root, pas à la card du clavier,
-     * pour ne pas être affecté par render().
      */
     private fun createBossToggleButton(root: FrameLayout) {
         val btn = TextView(this).apply {
