@@ -2,7 +2,6 @@ package com.nyavo.keyboard
 
 import android.animation.ObjectAnimator
 import android.animation.ValueAnimator
-import android.app.AlertDialog
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
@@ -14,6 +13,7 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
+import android.text.method.PasswordTransformationMethod
 import android.util.Base64
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
@@ -22,7 +22,6 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewAnimationUtils
 import android.view.ViewTreeObserver
-import android.view.WindowManager
 import android.view.animation.AccelerateDecelerateInterpolator
 import android.view.inputmethod.EditorInfo
 import android.widget.Button
@@ -44,7 +43,6 @@ class NyavoInputMethodService : InputMethodService() {
     private lateinit var state: KeyboardState
     private var rootContainer: LinearLayout? = null
     private var glowOverlay: View? = null
-    private var freezeOverlay: View? = null
     private var shiftButton: Button? = null
     private var currentEmojiCategoryIndex = 0
 
@@ -79,25 +77,20 @@ class NyavoInputMethodService : InputMethodService() {
 
     private val cursorStepThresholdPx get() = dp(24)
 
-    // ========== VAULT MODE ==========  
+    // ========== VAULT MODE ==========
     private val vaultPrefs by lazy { getSharedPreferences("nyavo_vault", MODE_PRIVATE) }
     private val vaultKeyAlias = "nyavo_vault_aes_key"
     private var vaultPopup: PopupWindow? = null
     private val vaultLongPressMs = 3000L
-    // =================================  
+    private var isVaultUnlocked = false
+    private var vaultTextTarget: TextView? = null
+    private val vaultFields = mutableListOf<TextView>()
+    // =================================
 
-    // ========== GAMIFICATION ==========  
+    // ========== GAMIFICATION (combo uniquement) ==========
     private val gameState = GameState()
     private var comboLabel: TextView? = null
-    private var bossPopup: PopupWindow? = null
-    private var bossProgressLabel: TextView? = null
-    private var isKeyboardFrozen = false
-    // ===================================  
-
-    // ========== BOSS TOGGLE ==========  
-    private var isBossEnabled = true
-    private var bossToggleView: TextView? = null
-    // ===================================  
+    // =====================================================
 
     override fun onEvaluateFullscreenMode(): Boolean = false
 
@@ -114,11 +107,7 @@ class NyavoInputMethodService : InputMethodService() {
 
         val card = root.findViewById<LinearLayout>(R.id.keyboard_card)
         glowOverlay = root.findViewById(R.id.keyboard_glow_overlay)
-        freezeOverlay = root.findViewById(R.id.keyboard_freeze_overlay)
         rootContainer = card
-
-        // Créer et ajouter le bouton boss au FrameLayout root  
-        createBossToggleButton(root)
 
         render()
         addFloatingAnimation(card)
@@ -139,7 +128,6 @@ class NyavoInputMethodService : InputMethodService() {
         dismissPopup()
         dismissPreview()
         dismissVaultPopup()
-        dismissBossPopup()
         longPressHandler.removeCallbacksAndMessages(null)
     }
 
@@ -150,32 +138,25 @@ class NyavoInputMethodService : InputMethodService() {
         dismissPopup()
         dismissPreview()
         dismissVaultPopup()
-        dismissBossPopup()
         longPressHandler.removeCallbacksAndMessages(null)
     }
 
     private fun syncOverlaySizesToCard(card: View) {
         card.viewTreeObserver.addOnGlobalLayoutListener {
-            val glow = glowOverlay
-            val freeze = freezeOverlay
-            if (glow != null) {
-                val p = glow.layoutParams
-                if (p.width != card.width || p.height != card.height) {
-                    p.width = card.width; p.height = card.height; glow.layoutParams = p
-                }
-            }
-            if (freeze != null) {
-                val p = freeze.layoutParams
-                if (p.width != card.width || p.height != card.height) {
-                    p.width = card.width; p.height = card.height; freeze.layoutParams = p
-                }
+            val glow = glowOverlay ?: return@addOnGlobalLayoutListener
+            if (glow.width == 0 || glow.height == 0 || !glow.isAttachedToWindow) return@addOnGlobalLayoutListener
+            val p = glow.layoutParams
+            if (p.width != card.width || p.height != card.height) {
+                p.width = card.width
+                p.height = card.height
+                glow.layoutParams = p
             }
         }
     }
 
-    // ---------------------------------------------------------------  
-    // Lévitation & Effets Visuels  
-    // ---------------------------------------------------------------  
+    // ---------------------------------------------------------------
+    // Lévitation & Effets Visuels
+    // ---------------------------------------------------------------
 
     private fun addFloatingAnimation(target: View, duration: Long = floatBaseDuration) {
         val anim = ObjectAnimator.ofFloat(target, "translationY", 0f, -5f, 0f).apply {
@@ -272,11 +253,6 @@ class NyavoInputMethodService : InputMethodService() {
         previewPopup?.let { if (it.isShowing) it.dismiss() }
     }
 
-    /**  
-     * Positionne un popup centré horizontalement au-dessus du clavier.  
-     * Utilise showAsDropDown pour un positionnement fiable par rapport  
-     * à la vue card du clavier.  
-     */
     private fun showPopupAboveKeyboard(popup: PopupWindow, content: View, widthDp: Int) {
         val root = rootContainer ?: return
         content.measure(
@@ -289,7 +265,6 @@ class NyavoInputMethodService : InputMethodService() {
         popup.width = measuredWidth
         popup.height = measuredHeight
 
-        // Centré horizontalement au-dessus de la card  
         val xoff = (root.width - measuredWidth) / 2
         val yoff = -measuredHeight - dp(8)
 
@@ -297,9 +272,9 @@ class NyavoInputMethodService : InputMethodService() {
         popup.showAsDropDown(root, xoff, yoff)
     }
 
-    // ---------------------------------------------------------------  
-    // Rendu Global  
-    // ---------------------------------------------------------------  
+    // ---------------------------------------------------------------
+    // Rendu Global
+    // ---------------------------------------------------------------
 
     private fun render() {
         val root = rootContainer ?: return
@@ -340,9 +315,9 @@ class NyavoInputMethodService : InputMethodService() {
         return container
     }
 
-    // ---------------------------------------------------------------  
-    // Barre de combo (gamification)  
-    // ---------------------------------------------------------------  
+    // ---------------------------------------------------------------
+    // Barre de combo (gamification)
+    // ---------------------------------------------------------------
 
     private fun buildComboBar(): View {
         val label = TextView(this).apply {
@@ -387,10 +362,6 @@ class NyavoInputMethodService : InputMethodService() {
                 if (card != null && floatBaseDuration != 1800L) rebuildFloatAnimation(card, 1800L)
             }
         }
-
-        if (isBossEnabled && gameState.shouldTriggerBoss()) {
-            startBossFight()
-        }
     }
 
     private fun breakComboWithFeedback() {
@@ -409,114 +380,29 @@ class NyavoInputMethodService : InputMethodService() {
         }
     }
 
-    private fun shakeCard() {
-        val card = rootContainer ?: return
-        card.animate().cancel()
+    private fun shakeView(view: View) {
+        view.animate().cancel()
         val amplitude = dp(6).toFloat()
-        card.animate()
+        view.animate()
             .translationX(amplitude)
             .setDuration(40L)
             .withEndAction {
-                card.animate().translationX(-amplitude).setDuration(40L).withEndAction {
-                    card.animate().translationX(amplitude / 2).setDuration(40L).withEndAction {
-                        card.animate().translationX(0f).setDuration(40L).start()
+                view.animate().translationX(-amplitude).setDuration(40L).withEndAction {
+                    view.animate().translationX(amplitude / 2).setDuration(40L).withEndAction {
+                        view.animate().translationX(0f).setDuration(40L).start()
                     }.start()
                 }.start()
             }
             .start()
     }
 
-    // ---------------------------------------------------------------  
-    // Boss Fight  
-    // ---------------------------------------------------------------  
-
-    private fun startBossFight() {
-        if (!isBossEnabled) return
-        val word = gameState.startBoss()
-        freezeKeyboard(false)
-
-        val container = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(14), dp(16), dp(14))
-            background = ContextCompat.getDrawable(this@NyavoInputMethodService, R.drawable.keyboard_card_bg)
-        }
-        val title = TextView(this).apply {
-            text = "⚔ BOSS : tape ce mot en 5s"
-            textSize = 14f
-            typeface = sharedTypeface
-            setTextColor(ContextCompat.getColor(this@NyavoInputMethodService, R.color.combo_fire))
-            gravity = Gravity.CENTER
-        }
-        val wordLabel = TextView(this).apply {
-            text = word
-            textSize = 20f
-            typeface = sharedTypeface
-            setTextColor(ContextCompat.getColor(this@NyavoInputMethodService, R.color.key_text))
-            gravity = Gravity.CENTER
-            setPadding(0, dp(8), 0, 0)
-            letterSpacing = 0.15f
-        }
-        bossProgressLabel = wordLabel
-        container.addView(title)
-        container.addView(wordLabel)
-
-        val popup = PopupWindow(container, dp(280), LinearLayout.LayoutParams.WRAP_CONTENT, false).apply {
-            isOutsideTouchable = false
-            isTouchable = false
-            setBackgroundDrawable(null)
-        }
-        showPopupAboveKeyboard(popup, container, 280)
-        bossPopup = popup
-
-        longPressHandler.postDelayed({
-            if (gameState.bossActive) {
-                onBossFail()
-            }
-        }, 5000L)
+    private fun shakeCard() {
+        rootContainer?.let { shakeView(it) }
     }
 
-    private fun updateBossProgressDisplay() {
-        val label = bossProgressLabel ?: return
-        val word = gameState.bossWord
-        val progress = gameState.bossProgress
-        val done = word.take(progress)
-        val remaining = word.drop(progress)
-        label.text = "$done$remaining"
-    }
-
-    private fun onBossSuccess() {
-        gameState.endBoss()
-        dismissBossPopup()
-        gameState.addComboBonus(50)
-        updateComboLabelStyle()
-        rootContainer?.let { triggerGlowFlash(it) }
-    }
-
-    private fun onBossFail() {
-        gameState.endBoss()
-        dismissBossPopup()
-        breakComboWithFeedback()
-        freezeKeyboard(true)
-        longPressHandler.postDelayed({ freezeKeyboard(false) }, 2000L)
-    }
-
-    private fun dismissBossPopup() {
-        bossPopup?.dismiss()
-        bossPopup = null
-        bossProgressLabel = null
-    }
-
-    private fun freezeKeyboard(frozen: Boolean) {
-        isKeyboardFrozen = frozen
-        freezeOverlay?.apply {
-            visibility = if (frozen) View.VISIBLE else View.GONE
-            isClickable = frozen
-        }
-    }
-
-    // ---------------------------------------------------------------  
-    // Barre d'outils Développeur  
-    // ---------------------------------------------------------------  
+    // ---------------------------------------------------------------
+    // Barre d'outils Développeur
+    // ---------------------------------------------------------------
 
     private fun buildDevRow(): View {
         val row = horizontalRow()
@@ -549,6 +435,11 @@ class NyavoInputMethodService : InputMethodService() {
     }
 
     private fun handleDevSymbolTap(symbol: String) {
+        if (vaultTextTarget != null && vaultPopup?.isShowing == true) {
+            val current = vaultTextTarget!!.text?.toString() ?: ""
+            vaultTextTarget!!.text = current + symbol
+            return
+        }
         val ic = currentInputConnection ?: return
         when (symbol) {
             "{" -> { ic.commitText("{}", 1); moveCursor(KeyEvent.KEYCODE_DPAD_LEFT) }
@@ -562,9 +453,9 @@ class NyavoInputMethodService : InputMethodService() {
         currentInputConnection?.performContextMenuAction(actionId)
     }
 
-    // ---------------------------------------------------------------  
-    // Rangées Standard  
-    // ---------------------------------------------------------------  
+    // ---------------------------------------------------------------
+    // Rangées Standard
+    // ---------------------------------------------------------------
 
     private fun buildLetterRow(letters: List<String>, isTopRow: Boolean = false): View {
         val row = horizontalRow()
@@ -650,9 +541,9 @@ class NyavoInputMethodService : InputMethodService() {
         return row
     }
 
-    // ---------------------------------------------------------------  
-    // Barre d'espace  
-    // ---------------------------------------------------------------  
+    // ---------------------------------------------------------------
+    // Barre d'espace
+    // ---------------------------------------------------------------
 
     private fun makeSpaceButton(weight: Float): Button {
         val button = Button(this).apply {
@@ -692,7 +583,6 @@ class NyavoInputMethodService : InputMethodService() {
         }
 
         button.setOnTouchListener { view, event ->
-            if (isKeyboardFrozen) return@setOnTouchListener true
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
                     cursorModeActive = false
@@ -747,7 +637,6 @@ class NyavoInputMethodService : InputMethodService() {
         }
 
         button.setOnTouchListener { view, event ->
-            if (isKeyboardFrozen) return@setOnTouchListener true
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
                     vaultTriggered = false
@@ -809,9 +698,9 @@ class NyavoInputMethodService : InputMethodService() {
         ic.sendKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_UP, keyCode, 0))
     }
 
-    // ---------------------------------------------------------------  
-    // Touche lettre composite  
-    // ---------------------------------------------------------------  
+    // ---------------------------------------------------------------
+    // Touche lettre composite
+    // ---------------------------------------------------------------
 
     private fun makeLetterKey(letter: String, topRowIndex: Int?): View {
         val container = FrameLayout(this).apply {
@@ -887,7 +776,6 @@ class NyavoInputMethodService : InputMethodService() {
         }
 
         container.setOnTouchListener { view, event ->
-            if (isKeyboardFrozen) return@setOnTouchListener true
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
                     longPressTriggered = false
@@ -897,10 +785,8 @@ class NyavoInputMethodService : InputMethodService() {
                     val fastTyping = (now - lastKeystrokeTimeMs) < 90L
                     lastKeystrokeTimeMs = now
 
-                    if (gameState.bossActive) {
-                        handleBossKeystroke(letter)
-                    } else {
-                        handleLetterTap(letter)
+                    val consumedByVault = handleLetterTap(letter)
+                    if (!consumedByVault) {
                         onSuccessfulKeystroke()
                     }
 
@@ -940,17 +826,9 @@ class NyavoInputMethodService : InputMethodService() {
         }
     }
 
-    private fun handleBossKeystroke(letter: String) {
-        when (gameState.submitBossLetter(letter)) {
-            BossResult.SUCCESS -> { updateBossProgressDisplay(); onBossSuccess() }
-            BossResult.FAIL -> onBossFail()
-            BossResult.CONTINUE -> updateBossProgressDisplay()
-        }
-    }
-
-    // ---------------------------------------------------------------  
-    // Popup symbole / chiffre  
-    // ---------------------------------------------------------------  
+    // ---------------------------------------------------------------
+    // Popup symbole / chiffre
+    // ---------------------------------------------------------------
 
     private fun showSymbolPopup(anchor: View, letter: String, topRowIndex: Int?) {
         dismissPopup()
@@ -1043,15 +921,23 @@ class NyavoInputMethodService : InputMethodService() {
         currentHighlightIndex = 0
     }
 
-    // ---------------------------------------------------------------  
-    // Saisie & États Standard  
-    // ---------------------------------------------------------------  
+    // ---------------------------------------------------------------
+    // Saisie & États Standard
+    // ---------------------------------------------------------------
 
-    private fun handleLetterTap(letter: String) {
+    private fun handleLetterTap(letter: String): Boolean {
         val output = if (state.isUppercase()) letter.uppercase() else letter
-        currentInputConnection?.commitText(output, 1)
         state.consumeShiftAfterLetter()
         updateShiftButtonStyle()
+
+        if (vaultTextTarget != null && vaultPopup?.isShowing == true) {
+            val current = vaultTextTarget!!.text?.toString() ?: ""
+            vaultTextTarget!!.text = current + output
+            return true
+        }
+
+        currentInputConnection?.commitText(output, 1)
+        return false
     }
 
     private fun handleEmojiTap(emoji: String) {
@@ -1063,9 +949,25 @@ class NyavoInputMethodService : InputMethodService() {
     private fun switchToEmojiMode() = state.run { mode = KeyboardMode.EMOJI }.also { currentEmojiCategoryIndex = 0; render() }
     private fun switchToLettersMode() = state.run { mode = KeyboardMode.LETTERS }.also { render() }
     private fun selectEmojiCategory(index: Int) { currentEmojiCategoryIndex = index; render() }
-    private fun handleSpace() { currentInputConnection?.commitText(" ", 1) }
+
+    private fun handleSpace() {
+        if (vaultTextTarget != null && vaultPopup?.isShowing == true) {
+            val current = vaultTextTarget!!.text?.toString() ?: ""
+            vaultTextTarget!!.text = current + " "
+            return
+        }
+        currentInputConnection?.commitText(" ", 1)
+    }
 
     private fun handleBackspace() {
+        if (vaultTextTarget != null && vaultPopup?.isShowing == true) {
+            val current = vaultTextTarget!!.text?.toString() ?: ""
+            if (current.isNotEmpty()) {
+                vaultTextTarget!!.text = current.dropLast(1)
+            }
+            return
+        }
+
         val ic = currentInputConnection ?: return
         val selected = ic.getSelectedText(0)
         if (!selected.isNullOrEmpty()) {
@@ -1087,6 +989,9 @@ class NyavoInputMethodService : InputMethodService() {
     }
 
     private fun handleEnter() {
+        if (vaultTextTarget != null && vaultPopup?.isShowing == true) {
+            return
+        }
         val ic = currentInputConnection ?: return
         val editorInfo = currentInputEditorInfo
         val action = editorInfo?.imeOptions?.and(EditorInfo.IME_MASK_ACTION)
@@ -1114,9 +1019,9 @@ class NyavoInputMethodService : InputMethodService() {
         KeyboardLayoutType.QWERTZ -> "QWZ"
     }
 
-    // ---------------------------------------------------------------  
-    // VAULT MODE (Coffre-Fort Chiffré)  
-    // ---------------------------------------------------------------  
+    // ---------------------------------------------------------------
+    // VAULT MODE (Coffre-Fort Chiffré)
+    // ---------------------------------------------------------------
 
     private fun isPasswordField(): Boolean {
         val inputType = currentInputEditorInfo?.inputType ?: return false
@@ -1161,8 +1066,50 @@ class NyavoInputMethodService : InputMethodService() {
         return String(cipher.doFinal(cipherText), Charsets.UTF_8)
     }
 
+    private fun makeVaultFieldLabel(text: String): TextView = TextView(this).apply {
+        this.text = text
+        typeface = sharedTypeface
+        setTextColor(ContextCompat.getColor(this@NyavoInputMethodService, R.color.key_text))
+        textSize = 14f
+        setPadding(0, dp(8), 0, dp(4))
+    }
+
+    private fun makeVaultTextField(hint: String, isPassword: Boolean = false): TextView {
+        return TextView(this).apply {
+            this.hint = hint
+            this.text = ""
+            typeface = sharedTypeface
+            setTextColor(ContextCompat.getColor(this@NyavoInputMethodService, R.color.key_text))
+            setHintTextColor(ContextCompat.getColor(this@NyavoInputMethodService, R.color.key_text).and(0x80FFFFFF.toInt()))
+            background = ContextCompat.getDrawable(this@NyavoInputMethodService, R.drawable.key_bg_normal)
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(48)).apply {
+                setMargins(0, dp(4), 0, dp(4))
+            }
+            isClickable = true
+            isFocusable = true
+            if (isPassword) {
+                transformationMethod = PasswordTransformationMethod.getInstance()
+            }
+            setOnClickListener {
+                vaultTextTarget = this
+                updateVaultFieldHighlight()
+            }
+        }.also { vaultFields.add(it) }
+    }
+
+    private fun updateVaultFieldHighlight() {
+        vaultFields.forEach { field ->
+            field.setBackgroundResource(
+                if (field == vaultTextTarget) R.drawable.key_bg_shift else R.drawable.key_bg_normal
+            )
+        }
+    }
+
     private fun showVaultPopup() {
         dismissVaultPopup()
+        vaultFields.clear()
+        vaultTextTarget = null
 
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -1170,6 +1117,69 @@ class NyavoInputMethodService : InputMethodService() {
             background = ContextCompat.getDrawable(this@NyavoInputMethodService, R.drawable.keyboard_card_bg)
         }
 
+        if (!isVaultUnlocked) {
+            buildVaultUnlockScreen(container)
+        } else {
+            buildVaultMainScreen(container)
+        }
+
+        val popup = PopupWindow(container, dp(300), LinearLayout.LayoutParams.WRAP_CONTENT, true).apply {
+            isOutsideTouchable = true
+            isTouchable = true
+            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+        }
+        showPopupAboveKeyboard(popup, container, 300)
+        vaultPopup = popup
+    }
+
+    private fun buildVaultUnlockScreen(container: LinearLayout) {
+        val title = TextView(this).apply {
+            text = "🔐 Vault Nyavo"
+            textSize = 20f
+            typeface = sharedTypeface
+            setTextColor(ContextCompat.getColor(this@NyavoInputMethodService, R.color.key_text))
+            setPadding(0, 0, 0, dp(12))
+        }
+        container.addView(title)
+
+        container.addView(makeVaultFieldLabel("Mot de passe"))
+        val passField = makeVaultTextField("Tapez le mot de passe...", isPassword = true)
+        container.addView(passField)
+        vaultTextTarget = passField
+        updateVaultFieldHighlight()
+
+        val unlockBtn = Button(this).apply {
+            text = "Déverrouiller"
+            isAllCaps = false
+            gravity = Gravity.CENTER
+            setPadding(0, 0, 0, 0)
+            minWidth = 0; minHeight = 0
+            includeFontPadding = false
+            stateListAnimator = null
+            elevation = 0f
+            typeface = sharedTypeface
+            setTextColor(ContextCompat.getColor(this@NyavoInputMethodService, R.color.key_text))
+            setBackgroundResource(R.drawable.key_bg_shift)
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(42)).apply {
+                setMargins(0, dp(12), 0, 0)
+            }
+            setOnClickListener {
+                val entered = passField.text?.toString() ?: ""
+                if (entered == "nyavo1974") {
+                    isVaultUnlocked = true
+                    dismissVaultPopup()
+                    showVaultPopup()
+                } else {
+                    passField.text = ""
+                    vibrateStrong()
+                    shakeView(passField)
+                }
+            }
+        }
+        container.addView(unlockBtn)
+    }
+
+    private fun buildVaultMainScreen(container: LinearLayout) {
         val title = TextView(this).apply {
             text = "🔐 Vault Nyavo"
             textSize = 20f
@@ -1244,34 +1254,17 @@ class NyavoInputMethodService : InputMethodService() {
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(42)).apply {
                 setMargins(0, dp(12), 0, 0)
             }
-            setOnClickListener { showAddCredentialDialog() }
+            setOnClickListener {
+                dismissVaultPopup()
+                showVaultAddPopup()
+            }
         }
         container.addView(addBtn)
-
-        val popup = PopupWindow(container, dp(300), LinearLayout.LayoutParams.WRAP_CONTENT, true).apply {
-            isOutsideTouchable = true
-            isTouchable = true
-            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
-        }
-        showPopupAboveKeyboard(popup, container, 300)
-        vaultPopup = popup
     }
 
-    private fun dismissVaultPopup() {
-        vaultPopup?.dismiss()
-        vaultPopup = null
-    }
-
-    /**  
-     * CORRECTION : Utilisation d'un AlertDialog au lieu de PopupWindow  
-     * pour le formulaire d'ajout. Les PopupWindow avec EditText dans un  
-     * InputMethodService sont instables (conflit de focus IME).  
-     *  
-     * Le dialog utilise TYPE_APPLICATION_ATTACHED_DIALOG avec le token  
-     * de la fenêtre du service IME.  
-     */
-    private fun showAddCredentialDialog() {
-        dismissVaultPopup()
+    private fun showVaultAddPopup() {
+        vaultFields.clear()
+        vaultTextTarget = null
 
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -1288,24 +1281,16 @@ class NyavoInputMethodService : InputMethodService() {
         }
         container.addView(title)
 
-        val inputAlias = android.widget.EditText(this).apply {
-            hint = "Nom (ex: GitHub)"
-            setTextColor(ContextCompat.getColor(this@NyavoInputMethodService, R.color.key_text))
-            setHintTextColor(ContextCompat.getColor(this@NyavoInputMethodService, R.color.key_text).and(0x80FFFFFF.toInt()))
-            background = ContextCompat.getDrawable(this@NyavoInputMethodService, R.drawable.key_bg_normal)
-            setPadding(dp(12), dp(12), dp(12), dp(12))
-        }
-        container.addView(inputAlias)
+        container.addView(makeVaultFieldLabel("Nom (ex: GitHub)"))
+        val aliasField = makeVaultTextField("Nom du service")
+        container.addView(aliasField)
 
-        val inputPass = android.widget.EditText(this).apply {
-            hint = "Mot de passe"
-            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
-            setTextColor(ContextCompat.getColor(this@NyavoInputMethodService, R.color.key_text))
-            setHintTextColor(ContextCompat.getColor(this@NyavoInputMethodService, R.color.key_text).and(0x80FFFFFF.toInt()))
-            background = ContextCompat.getDrawable(this@NyavoInputMethodService, R.drawable.key_bg_normal)
-            setPadding(dp(12), dp(12), dp(12), dp(12))
-        }
-        container.addView(inputPass)
+        container.addView(makeVaultFieldLabel("Mot de passe"))
+        val passField = makeVaultTextField("Mot de passe", isPassword = true)
+        container.addView(passField)
+
+        vaultTextTarget = aliasField
+        updateVaultFieldHighlight()
 
         val btnRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -1346,131 +1331,46 @@ class NyavoInputMethodService : InputMethodService() {
             }
         }
 
-        btnRow.addView(saveBtn)
-        btnRow.addView(cancelBtn)
-        container.addView(btnRow)
-
-        val dialog = AlertDialog.Builder(this)
-            .setView(container)
-            .create()
-
         saveBtn.setOnClickListener {
-            val alias = inputAlias.text.toString().trim()
-            val pass = inputPass.text.toString()
+            val alias = aliasField.text?.toString()?.trim() ?: ""
+            val pass = passField.text?.toString() ?: ""
             if (alias.isNotEmpty() && pass.isNotEmpty()) {
                 vaultPrefs.edit().putString(alias, encryptVault(pass)).apply()
-                dialog.dismiss()
+                dismissVaultPopup()
                 showVaultPopup()
+            } else {
+                vibrateStrong()
             }
         }
 
         cancelBtn.setOnClickListener {
-            dialog.dismiss()
+            dismissVaultPopup()
+            showVaultPopup()
         }
 
-        // Configuration de la fenêtre du dialog pour un IME  
-        dialog.window?.let { dialogWindow ->
-            dialogWindow.setType(WindowManager.LayoutParams.TYPE_APPLICATION_ATTACHED_DIALOG)
-            // CORRECTION : On utilise le windowToken de la vue principale du clavier attachée
-            val imeWindowToken = rootContainer?.windowToken ?: window?.window?.decorView?.windowToken
-            if (imeWindowToken != null) {
-                dialogWindow.attributes = dialogWindow.attributes.apply {
-                    this.token = imeWindowToken
-                }
-            }
-            dialogWindow.addFlags(WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM)
-            dialogWindow.setBackgroundDrawable(ContextCompat.getDrawable(this, R.drawable.keyboard_card_bg))
+        btnRow.addView(saveBtn)
+        btnRow.addView(cancelBtn)
+        container.addView(btnRow)
+
+        val popup = PopupWindow(container, dp(300), LinearLayout.LayoutParams.WRAP_CONTENT, true).apply {
+            isOutsideTouchable = true
+            isTouchable = true
+            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
         }
-
-        dialog.show()
+        showPopupAboveKeyboard(popup, container, 300)
+        vaultPopup = popup
     }
 
-    // ---------------------------------------------------------------  
-    // Bouton Toggle Boss (flottant, indépendant)  
-    // ---------------------------------------------------------------  
-
-    /**  
-     * Crée le bouton toggle boss et le positionne au-dessus du clavier,  
-     * centré horizontalement, avec un espace de 8dp (≈ 2mm).  
-     */
-    private fun createBossToggleButton(root: FrameLayout) {
-        val btn = TextView(this).apply {
-            text = "⚔"
-            textSize = 16f
-            typeface = sharedTypeface
-            gravity = Gravity.CENTER
-            setTextColor(ContextCompat.getColor(this@NyavoInputMethodService, R.color.combo_fire))
-            background = ContextCompat.getDrawable(this@NyavoInputMethodService, R.drawable.key_bg_special)
-            setPadding(dp(10), dp(6), dp(10), dp(6))
-            isClickable = true
-            isFocusable = true
-        }
-
-        val params = FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.WRAP_CONTENT,
-            FrameLayout.LayoutParams.WRAP_CONTENT
-        )
-        btn.layoutParams = params
-
-        btn.setOnClickListener { toggleBossEnabled() }
-
-        root.addView(btn, 0)
-        bossToggleView = btn
-
-        // Positionner dynamiquement après que le layout soit mesuré  
-        root.viewTreeObserver.addOnGlobalLayoutListener(object : ViewTreeObserver.OnGlobalLayoutListener {
-            override fun onGlobalLayout() {
-                val card = rootContainer ?: return
-                if (card.height == 0 || btn.height == 0) return
-
-                // Centré horizontalement  
-                btn.x = (root.width - btn.width) / 2f
-                // Au-dessus du clavier avec 8dp d'espace  
-                val targetY = card.y - btn.height - dp(8)
-
-                if (targetY < dp(4)) {
-                    // Pas assez de place : agrandir le padding du root  
-                    val neededPadding = dp(8) + btn.height + dp(4)
-                    if (root.paddingTop < neededPadding) {
-                        root.setPadding(root.paddingLeft, neededPadding, root.paddingRight, root.paddingBottom)
-                    }
-                    btn.y = dp(4).toFloat()
-                } else {
-                    btn.y = targetY
-                }
-
-                if (root.viewTreeObserver.isAlive) {
-                    root.viewTreeObserver.removeOnGlobalLayoutListener(this)
-                }
-            }
-        })
-
-        // Lévitation indépendante (durée différente du clavier)  
-        addFloatingAnimation(btn, 2100L)
+    private fun dismissVaultPopup() {
+        vaultPopup?.dismiss()
+        vaultPopup = null
+        vaultTextTarget = null
+        vaultFields.clear()
     }
 
-    private fun toggleBossEnabled() {
-        isBossEnabled = !isBossEnabled
-        updateBossToggleAppearance()
-        bossToggleView?.performHapticFeedback(
-            if (isBossEnabled) HapticFeedbackConstants.CONFIRM else HapticFeedbackConstants.REJECT
-        )
-    }
-
-    private fun updateBossToggleAppearance() {
-        val btn = bossToggleView ?: return
-        if (isBossEnabled) {
-            btn.text = "⚔"
-            btn.setTextColor(ContextCompat.getColor(this, R.color.combo_fire))
-        } else {
-            btn.text = "🛡"
-            btn.setTextColor(ContextCompat.getColor(this, R.color.combo_base))
-        }
-    }
-
-    // ---------------------------------------------------------------  
-    // Générateurs Dynamiques de Vues  
-    // ---------------------------------------------------------------  
+    // ---------------------------------------------------------------
+    // Générateurs Dynamiques de Vues
+    // ---------------------------------------------------------------
 
     private fun verticalContainer() = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
@@ -1513,7 +1413,6 @@ class NyavoInputMethodService : InputMethodService() {
         button.layoutParams = params
 
         button.setOnClickListener {
-            if (isKeyboardFrozen) return@setOnClickListener
             onClick()
             it.post {
                 if (hapticFeedback != -1) {
